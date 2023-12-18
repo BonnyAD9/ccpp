@@ -1,6 +1,13 @@
 # ccpp
 
-A simple to use build tool for C/C++ projects.
+A simple to use build tool for C/C++ projects. The goal is to make building of
+C/C++ projects as simple as possible. With ccpp you no longer have to worry
+about adding new source files or subdirectories in your source files, all is
+handled automatically.
+
+Ofcourse `ccpp` is not for everyone, with this simlicity of use you loose the
+flexibility of other build systems, but this is great tool for most simple
+projects.
 
 Currently only C projects are supported.
 

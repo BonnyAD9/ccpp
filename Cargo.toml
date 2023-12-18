@@ -7,5 +7,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.75"
+serde = { version = "1.0.193", features = [ "serde_derive" ] }
 thiserror = "1.0.50"
+toml = "0.8.8"
 which = "5.0.0"

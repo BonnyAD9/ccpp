@@ -12,6 +12,8 @@ pub enum Error {
     )]
     ProcessFailed(Option<i32>),
     #[error(transparent)]
+    TomlDeError(#[from] toml::de::Error),
+    #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]
     StripPrefixError(#[from] StripPrefixError),

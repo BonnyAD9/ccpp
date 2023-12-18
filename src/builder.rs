@@ -1,4 +1,5 @@
 use std::{
+    env,
     ffi::OsStr,
     fs::create_dir_all,
     path::Path,
@@ -6,6 +7,7 @@ use std::{
 };
 
 use crate::{
+    config::Config,
     dependency::{get_dependencies, Dependency},
     dir_structure::DirStructure,
     err::{Error, Result},
@@ -28,6 +30,54 @@ pub struct Builder {
 //===========================================================================//
 
 impl Builder {
+    pub fn from_config(conf: &Config, release: bool) -> Self {
+        let mut cc = conf.build.cc.as_ref();
+        let mut ld = conf.build.ld.as_ref();
+        let mut cflags = conf
+            .build
+            .cflags
+            .as_ref()
+            .map_or_else(|| vec![], |f| f.clone());
+        let mut ldflags = conf
+            .build
+            .ldflags
+            .as_ref()
+            .map_or_else(|| vec![], |f| f.clone());
+
+        let build = if release {
+            &conf.release_build
+        } else {
+            &conf.debug_build
+        };
+
+        if let Some(c) = &build.cc {
+            cc = Some(c)
+        }
+        if let Some(l) = &build.ld {
+            ld = Some(l)
+        }
+        if let Some(cf) = &build.cflags {
+            cflags.extend(cf.iter().map(|f| f.clone()));
+        }
+        if let Some(lf) = &build.ldflags {
+            ldflags.extend(lf.iter().map(|f| f.clone()));
+        }
+
+        Self {
+            cc: cc
+                .map(|c| c.to_owned())
+                .or(env::var("CC").ok())
+                .unwrap_or_else(|| "cc".to_owned()),
+            ld: ld
+                .map(|c| c.to_owned())
+                .or(env::var("LD").ok())
+                .unwrap_or_else(|| "cc".to_owned()),
+            cflags,
+            ldflags,
+            print_command: true,
+        }
+    }
+
     pub fn build(&self, dir: &DirStructure) -> Result<()> {
         let deps = get_dependencies(dir)?;
 

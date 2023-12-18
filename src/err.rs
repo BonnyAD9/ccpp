@@ -2,10 +2,14 @@ use std::path::StripPrefixError;
 
 use thiserror::Error;
 
+use crate::arg_parser::ArgError;
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error(transparent)]
+    Arg(#[from] ArgError),
     #[error(
         "child process exited with code {}",
         if let Some(c) = .0 { *c } else { 1 }

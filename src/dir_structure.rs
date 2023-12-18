@@ -90,6 +90,26 @@ impl DirStructure {
     pub fn binary(&self) -> &Path {
         &self.bin
     }
+
+    /// gets the release binary file
+    pub fn rel_bin(&self) -> &Path {
+        &self.rel_bin
+    }
+
+    /// gets the debug binary file
+    pub fn deb_bin(&self) -> &Path {
+        &self.deb_bin
+    }
+
+    /// gets the release objects folder
+    pub fn rel_obj(&self) -> &Path {
+        &self.rel_obj
+    }
+
+    /// gets the debug objects folder
+    pub fn deb_obj(&self) -> &Path {
+        &self.deb_obj
+    }
 }
 
 //===========================================================================//

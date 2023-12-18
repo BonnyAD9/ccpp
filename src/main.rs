@@ -29,9 +29,9 @@ fn main() -> Result<()> {
     }
 }
 
-fn clean(_args: &Args) -> Result<()> {
+fn clean(args: &Args) -> Result<()> {
     let conf = Config::from_toml_file(CONF_FILE)?;
-    let dir = DirStructure::new(&conf.project.name);
+    let dir = DirStructure::from_config(&conf, args.release);
 
     if dir.rel_obj().exists() {
         remove_dir_all(dir.rel_obj())?;
@@ -62,25 +62,7 @@ fn run(args: &Args) -> Result<()> {
 
 fn prepare(args: &Args) -> Result<(Config, DirStructure)> {
     let conf = Config::from_toml_file(CONF_FILE)?;
-
-    let mut dir = if args.release {
-        DirStructure::new(
-            conf.release_build
-                .target
-                .as_ref()
-                .or(conf.build.target.as_ref())
-                .map_or(&conf.project.name, |t| t),
-        )
-    } else {
-        DirStructure::new(
-            conf.debug_build
-                .target
-                .as_ref()
-                .or(conf.build.target.as_ref())
-                .map_or(&conf.project.name, |t| t),
-        )
-    };
-
+    let mut dir = DirStructure::from_config(&conf, args.release);
     dir.analyze(args.release)?;
     Ok((conf, dir))
 }

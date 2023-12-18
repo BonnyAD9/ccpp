@@ -1,4 +1,4 @@
-use crate::err::Result;
+use crate::{config::Config, err::Result};
 use std::{
     borrow::Cow,
     fs::read_dir,
@@ -32,6 +32,26 @@ pub struct DirStructure {
 //===========================================================================//
 
 impl DirStructure {
+    pub fn from_config(conf: &Config, release: bool) -> Self {
+        if release {
+            DirStructure::new(
+                conf.release_build
+                    .target
+                    .as_ref()
+                    .or(conf.build.target.as_ref())
+                    .map_or(&conf.project.name, |t| t),
+            )
+        } else {
+            DirStructure::new(
+                conf.debug_build
+                    .target
+                    .as_ref()
+                    .or(conf.build.target.as_ref())
+                    .map_or(&conf.project.name, |t| t),
+            )
+        }
+    }
+
     pub fn new<S>(proj_name: S) -> Self
     where
         S: AsRef<str>,

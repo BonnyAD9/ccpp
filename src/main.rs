@@ -62,7 +62,25 @@ fn run(args: &Args) -> Result<()> {
 
 fn prepare(args: &Args) -> Result<(Config, DirStructure)> {
     let conf = Config::from_toml_file(CONF_FILE)?;
-    let mut dir = DirStructure::new(&conf.project.name);
+
+    let mut dir = if args.release {
+        DirStructure::new(
+            conf.release_build
+                .target
+                .as_ref()
+                .or(conf.build.target.as_ref())
+                .map_or(&conf.project.name, |t| t),
+        )
+    } else {
+        DirStructure::new(
+            conf.debug_build
+                .target
+                .as_ref()
+                .or(conf.build.target.as_ref())
+                .map_or(&conf.project.name, |t| t),
+        )
+    };
+
     dir.analyze(args.release)?;
     Ok((conf, dir))
 }

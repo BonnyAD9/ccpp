@@ -1,6 +1,9 @@
-use std::{fs::{remove_dir_all, remove_file}, process::Command};
+use std::{
+    fs::{remove_dir_all, remove_file},
+    process::Command,
+};
 
-use arg_parser::{Args, Action};
+use arg_parser::{Action, Args};
 use builder::Builder;
 use config::Config;
 use dir_structure::DirStructure;
@@ -79,7 +82,8 @@ fn run_loaded(args: &Args, _conf: &Config, dir: &DirStructure) -> Result<()> {
 
 fn help(_args: &Args) -> Result<()> {
     let v: Option<&str> = option_env!("CARGO_PKG_VERSION");
-    println!("Welcome to ccpp help by BonnyAD9
+    println!(
+        "Welcome to ccpp help by BonnyAD9
 Version: {}
 
 Usage:

@@ -54,7 +54,7 @@ impl Args {
                 "--" => {
                     res.app_args.extend(args.map(|a| a.to_owned()));
                     break;
-                },
+                }
                 _ => {
                     return Err(Error::Arg(ArgError::UnknownArgument(
                         arg.to_owned(),

@@ -1,7 +1,8 @@
-use dependency::get_dependencies;
+use builder::Builder;
 use dir_structure::DirStructure;
 use err::Result;
 
+mod builder;
 mod dependency;
 mod dir_structure;
 mod err;
@@ -10,15 +11,15 @@ fn main() -> Result<()> {
     let mut dir = DirStructure::new("main");
     dir.analyze(false)?;
 
-    let file_deps = get_dependencies(&dir)?;
+    let bld = Builder {
+        cc: "cc".into(),
+        ld: "cc".into(),
+        cflags: vec!["-g".into(), "-O3".into(), "-fsanitize=address".into()],
+        ldflags: vec!["-fsanitize=address".into()],
+        print_command: true,
+    };
 
-    for file_dep in file_deps {
-        print!("{} {:?}:", file_dep.is_up_to_date()?, file_dep.file);
-        for dep in &file_dep.deps {
-            print!(" {dep:?}");
-        }
-        println!();
-    }
+    bld.build(&dir)?;
 
     Ok(())
 }

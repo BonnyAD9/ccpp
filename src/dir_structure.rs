@@ -87,7 +87,7 @@ impl DirStructure {
     }
 
     /// gets path to the binary file
-    pub fn _binary(&self) -> &Path {
+    pub fn binary(&self) -> &Path {
         &self.bin
     }
 }

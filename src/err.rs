@@ -6,6 +6,11 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error(
+        "child process exited with code {}",
+        if let Some(c) = .0 { *c } else { 1 }
+    )]
+    ProcessFailed(Option<i32>),
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]

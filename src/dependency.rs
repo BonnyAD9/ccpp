@@ -5,8 +5,10 @@ use crate::{dir_structure::DirStructure, err::Result};
 pub struct Dependency<'a> {
     /// File that has dependencies
     pub file: &'a Path,
-    /// Dependencies of [`Self::file`]
-    pub deps: Vec<Cow<'a, Path>>,
+    /// Direct dependencies to build [`Self::file`]
+    pub direct: Vec<Cow<'a, Path>>,
+    /// Indirect dependencies of [`Self::file`]
+    pub indirect: Vec<Cow<'a, Path>>,
 }
 
 //===========================================================================//
@@ -30,7 +32,7 @@ impl<'a> Dependency<'a> {
         };
 
         // need to update if dependency is newer than file
-        for dep in &self.deps {
+        for dep in self.direct.iter().chain(self.indirect.iter()) {
             let dep_mod = dep.metadata()?.modified()?;
             if dep_mod > last_mod {
                 return Ok(false);
@@ -59,10 +61,15 @@ pub fn get_dependencies<'a>(
 /// Finds all dependencies of `file` from source file `src`
 impl<'a> Dependency<'a> {
     fn from_src(file: &'a Path, src: &'a Path) -> Result<Self> {
-        let deps = vec![src.into()];
+        let direct = vec![src.into()];
+        let indirect = vec![];
 
-        // TODO: find included files
+        // TODO: indirect dependencies
 
-        Ok(Self { file, deps })
+        Ok(Self {
+            file,
+            direct,
+            indirect,
+        })
     }
 }

@@ -44,19 +44,19 @@ ldflags = [] # flags for the linker, this is empty by default
 
 [debug_build]
 # configuration for debug builds
-target = "my-app-debug" # when set, overwrites the value from [build]
-cc = "gcc" # when set, overwrite s the value form [build]
-ld = "gcc" # when set, overwrite s the value form [build]
-cflags = [] # when set, it is appended to the flags from [build]
-ldflags = [] # when set, it is appended to the flags from [build]
+target = "my-app-debug" # when set overwrites the value from [build]
+cc = "gcc" # when set overwrites the value form [build]
+ld = "gcc" # when set overwrites the value form [build]
+cflags = [] # when set it is appended to the flags from [build]
+ldflags = [] # when set it is appended to the flags from [build]
 
 [release_build]
 # configuration for release builds
-target = "my-app-debug" # when set, overwrites the value from [build]
-cc = "gcc" # when set, overwrite s the value form [build]
-ld = "gcc" # when set, overwrite s the value form [build]
-cflags = [] # when set, it is appended to the flags from [build]
-ldflags = [] # when set, it is appended to the flags from [build]
+target = "my-app-debug" # when set overwrites the value from [build]
+cc = "gcc" # when set overwrites the value form [build]
+ld = "gcc" # when set overwrites the value form [build]
+cflags = [] # when set it is appended to the flags from [build]
+ldflags = [] # when set it is appended to the flags from [build]
 ```
 
 ### CLI

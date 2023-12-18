@@ -1,7 +1,7 @@
 use crate::err::Result;
 use std::{
     borrow::Cow,
-    fs::{read_dir, FileType},
+    fs::read_dir,
     path::{Path, PathBuf},
 };
 
@@ -87,7 +87,7 @@ impl DirStructure {
     }
 
     /// gets path to the binary file
-    pub fn binary(&self) -> &Path {
+    pub fn _binary(&self) -> &Path {
         &self.bin
     }
 }

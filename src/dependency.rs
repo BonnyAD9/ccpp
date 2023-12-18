@@ -1,9 +1,6 @@
 use std::{borrow::Cow, io, path::Path};
 
-use crate::{
-    dir_structure::DirStructure,
-    err::{Error, Result},
-};
+use crate::{dir_structure::DirStructure, err::Result};
 
 pub struct Dependency<'a> {
     /// File that has dependencies

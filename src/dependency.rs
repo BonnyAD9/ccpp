@@ -26,13 +26,10 @@ impl<'a> Dependency<'a> {
         // always return false
         let last_mod = match self.file.metadata()?.modified() {
             Ok(dt) => dt,
-            Err(e) => {
-                return if e.kind() == io::ErrorKind::Unsupported {
-                    Ok(false)
-                } else {
-                    Err(Error::Io(e))
-                };
+            Err(e) if e.kind() == io::ErrorKind::Unsupported => {
+                return Ok(false);
             }
+            e => e?,
         };
 
         // need to update if dependency is newer than file

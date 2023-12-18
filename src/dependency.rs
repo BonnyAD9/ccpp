@@ -1,6 +1,9 @@
-use std::{borrow::Cow, path::Path, io};
+use std::{borrow::Cow, io, path::Path};
 
-use crate::{dir_structure::DirStructure, err::{Result, Error}};
+use crate::{
+    dir_structure::DirStructure,
+    err::{Error, Result},
+};
 
 pub struct Dependency<'a> {
     /// File that has dependencies
@@ -34,7 +37,7 @@ impl<'a> Dependency<'a> {
 
         // need to update if dependency is newer than file
         for dep in &self.deps {
-            let dep_mod = self.file.metadata()?.modified()?;
+            let dep_mod = dep.metadata()?.modified()?;
             if dep_mod > last_mod {
                 return Ok(false);
             }

@@ -13,7 +13,7 @@ fn main() -> Result<()> {
     let file_deps = get_dependencies(&dir)?;
 
     for file_dep in file_deps {
-        print!("{:?}:", file_dep.file);
+        print!("{} {:?}:", file_dep.is_up_to_date()?, file_dep.file);
         for dep in &file_dep.deps {
             print!(" {dep:?}");
         }

@@ -1,6 +1,6 @@
-use std::{borrow::Cow, path::Path};
+use std::{borrow::Cow, path::Path, io};
 
-use crate::{dir_structure::DirStructure, err::Result};
+use crate::{dir_structure::DirStructure, err::{Result, Error}};
 
 pub struct Dependency<'a> {
     /// File that has dependencies
@@ -12,6 +12,37 @@ pub struct Dependency<'a> {
 //===========================================================================//
 //                                   Public                                  //
 //===========================================================================//
+
+impl<'a> Dependency<'a> {
+    pub fn is_up_to_date(&self) -> Result<bool> {
+        if !self.file.exists() {
+            return Ok(false);
+        }
+
+        // get the last modified date, this may not be supported, in that case
+        // always return false
+        let last_mod = match self.file.metadata()?.modified() {
+            Ok(dt) => dt,
+            Err(e) => {
+                return if e.kind() == io::ErrorKind::Unsupported {
+                    Ok(false)
+                } else {
+                    Err(Error::Io(e))
+                };
+            }
+        };
+
+        // need to update if dependency is newer than file
+        for dep in &self.deps {
+            let dep_mod = self.file.metadata()?.modified()?;
+            if dep_mod > last_mod {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
+    }
+}
 
 /// Finds all dependencies for the project in the directory structure
 pub fn get_dependencies<'a>(

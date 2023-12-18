@@ -71,7 +71,7 @@ impl Builder {
             ld: ld
                 .map(|c| c.to_owned())
                 .or(env::var("LD").ok())
-                .unwrap_or_else(|| "cc".to_owned()),
+                .unwrap_or_else(|| "ld".to_owned()),
             cflags,
             ldflags,
             print_command: true,

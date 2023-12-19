@@ -15,6 +15,7 @@ mod config;
 mod dependency;
 mod dir_structure;
 mod err;
+mod include_deps;
 
 const CONF_FILE: &str = "ccpp.toml";
 

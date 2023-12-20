@@ -1,6 +1,6 @@
 use std::{
     fs::{remove_dir_all, remove_file},
-    process::Command,
+    process::Command, collections::HashMap,
 };
 
 use arg_parser::{Action, Args};
@@ -115,7 +115,8 @@ Flags:
 
 fn debug_code(args: &Args) -> Result<()> {
     let (_conf, dir) = prepare(args)?;
-    let deps = get_dependencies(&dir)?;
+    let mut dep_dep = HashMap::new();
+    let deps = get_dependencies(&dir, &mut dep_dep)?;
     for dep in &deps {
         println!("{:?}", dep);
     }

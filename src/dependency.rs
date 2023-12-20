@@ -1,4 +1,9 @@
-use std::{borrow::Cow, io, path::Path, collections::{HashMap, VecDeque}};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    io,
+    path::Path,
+};
 
 use crate::{
     dir_structure::DirStructure, err::Result, include_deps::get_included_files,
@@ -65,7 +70,6 @@ pub fn get_dependencies<'a>(
 //===========================================================================//
 
 enum DepDirection<'a> {
-    Deeper{path: Cow<'a, Path>, parent: Cow<'a, Path>},
     Same(Cow<'a, Path>),
     LastDeeper(Cow<'a, Path>),
 }
@@ -80,10 +84,10 @@ impl<'a> Dependency<'a> {
         }
     }
 
-    fn from_src(
+    fn from_src<'b>(
         file: &'a Path,
         src: &'a Path,
-        dep_dep: &'a mut HashMap<Cow<'a, Path>, Dependency<'a>>,
+        dep_dep: &'b mut HashMap<Cow<'b, Path>, Dependency<'b>>,
     ) -> Result<Self> {
         let direct = vec![src.into()];
         let mut indirect = vec![];
@@ -97,15 +101,16 @@ impl<'a> Dependency<'a> {
             );
         }
 
-        let mut to_exam: Vec<_> = indirect.iter().map(|f| DepDirection::Same(*f)).collect();
-        let mut dep_stack = vec![Self { file: src.into(), direct, indirect }];
-        while let Some(dep) = to_exam.pop() {
+        let mut to_exam: Vec<_> =
+            indirect.iter().map(|f| DepDirection::Same(*f)).collect();
+        let mut dep_stack = vec![Self {
+            file: src.into(),
+            direct,
+            indirect,
+        }];
+        while let Some(file) = to_exam.pop() {
             let mut pop = false;
-            let dep = match dep {
-                DepDirection::Deeper { path, parent } => {
-                    dep_stack.push(Self::new(parent));
-                    path
-                },
+            let file = match file {
                 DepDirection::Same(path) => path,
                 DepDirection::LastDeeper(path) => {
                     pop = true;
@@ -113,14 +118,48 @@ impl<'a> Dependency<'a> {
                 }
             };
 
-            // TODO
+            if let Some(dep) = dep_dep.get(&file) {
+                if let Some(top) = dep_stack.last_mut() {
+                    top.indirect.extend(dep.indirect.iter().map(|d| *d));
+                }
+            } else if !dep_stack.iter().any(|d| d.file == file) {
+                if let Some(parent) = file.parent() {
+                    let indirect = get_included_files(&file)?
+                        .into_iter()
+                        .filter(|d| d.relative)
+                        .map(|d| parent.join(d.path).into())
+                        .collect();
+
+                    let dep = Self {
+                        file,
+                        direct: vec![],
+                        indirect,
+                    };
+
+                    if dep.indirect.is_empty() {
+                        dep_dep.insert(dep.file, dep);
+                    } else {
+                        to_exam.push(DepDirection::LastDeeper(dep.indirect[0]));
+                        to_exam.extend(dep.indirect.iter().skip(1).map(|d| DepDirection::Same(*d)));
+                        dep_stack.push(dep);
+                    }
+                }
+            }
 
             if pop {
-                // TODO
-                dep_stack.pop();
+                if let Some(dep) = dep_stack.pop() {
+                    if let Some(top_dep) = dep_stack.last_mut() {
+                        top_dep.indirect.extend(dep.indirect.iter().map(|d| *d));
+                    }
+                    dep_dep.insert(dep.file, dep);
+                }
             }
         }
 
-        todo!("return last in dep_stack")
+        if dep_stack.len() != 1 {
+            eprintln!("Error that should never happen");
+        }
+
+        Ok(dep_stack[0])
     }
 }

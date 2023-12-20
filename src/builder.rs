@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     env,
     ffi::OsStr,
     fs::create_dir_all,
@@ -97,7 +97,7 @@ impl Builder {
         let bin_dep = Dependency {
             file: dir.binary().into(),
             direct: dir.objs().iter().map(|o| o.as_path().into()).collect(),
-            indirect: vec![],
+            indirect: HashSet::new(),
         };
 
         if !bin_dep.is_up_to_date()? {

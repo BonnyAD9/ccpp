@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io, path::Path, rc::Rc};
+use std::{collections::{HashMap, HashSet, hash_set}, io, path::Path, rc::Rc};
 
 use crate::{
     dir_structure::DirStructure,
@@ -13,7 +13,7 @@ pub struct Dependency {
     /// Direct dependencies to build [`Self::file`]
     pub direct: Vec<Rc<Path>>,
     /// Indirect dependencies of [`Self::file`]
-    pub indirect: Vec<Rc<Path>>,
+    pub indirect: HashSet<Rc<Path>>,
 }
 
 //===========================================================================//
@@ -77,7 +77,7 @@ impl Dependency {
         Self {
             file,
             direct: vec![],
-            indirect: vec![],
+            indirect: HashSet::new(),
         }
     }
 
@@ -87,7 +87,7 @@ impl Dependency {
         dep_dep: &mut HashMap<Rc<Path>, Dependency>,
     ) -> Result<Self> {
         let direct = vec![src.into()];
-        let mut indirect = vec![];
+        let mut indirect = HashSet::new();
 
         if let Some(parent) = src.parent() {
             indirect.extend(
@@ -134,25 +134,22 @@ impl Dependency {
                         })
                         .collect();
 
+                    //println!("{file:?}\n{dep_stack:?}\n{indirect:?}");
+
                     let dep = Self {
                         file,
                         direct: vec![],
                         indirect,
                     };
 
-                    if dep.indirect.is_empty() {
-                        dep_dep.insert(dep.file.clone(), dep);
-                    } else {
-                        to_exam.push(DepDirection::LastDeeper(
-                            dep.indirect[0].clone(),
-                        ));
-                        to_exam.extend(
-                            dep.indirect
-                                .iter()
-                                .skip(1)
-                                .map(|d| DepDirection::Same(d.clone())),
-                        );
+                    let mut indirect = dep.indirect.iter();
+
+                    if let Some(d) = indirect.next() {
+                        to_exam.push(DepDirection::LastDeeper(d.clone()));
+                        to_exam.extend(indirect.map(|d| DepDirection::Same(d.clone())));
                         dep_stack.push(dep);
+                    } else {
+                        dep_dep.insert(dep.file.clone(), dep);
                     }
                 }
             }

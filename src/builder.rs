@@ -1,4 +1,5 @@
 use std::{
+    collections::{HashMap, HashSet},
     env,
     ffi::OsStr,
     fs::create_dir_all,
@@ -79,7 +80,8 @@ impl Builder {
     }
 
     pub fn build(&self, dir: &DirStructure) -> Result<()> {
-        let deps = get_dependencies(dir)?;
+        let mut dep_deps = HashMap::new();
+        let deps = get_dependencies(dir, &mut dep_deps)?;
 
         for file in &deps {
             if file.is_up_to_date()? {
@@ -88,14 +90,14 @@ impl Builder {
 
             self.sync_build_file(
                 file.direct.iter().map(|i| i.as_ref()),
-                file.file,
+                file.file.as_ref(),
             )?;
         }
 
         let bin_dep = Dependency {
-            file: dir.binary(),
-            direct: dir.objs().iter().map(|o| o.into()).collect(),
-            indirect: vec![],
+            file: dir.binary().into(),
+            direct: dir.objs().iter().map(|o| o.as_path().into()).collect(),
+            indirect: HashSet::new(),
         };
 
         if !bin_dep.is_up_to_date()? {

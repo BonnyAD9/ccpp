@@ -9,6 +9,7 @@ pub enum ArgError {
     #[error("Unknown argument `{}`", .0)]
     UnknownArgument(String),
     #[error("No action specified, use `ccpp help` to show help")]
+    #[allow(dead_code)]
     NoAction,
 }
 
@@ -64,7 +65,14 @@ impl Args {
         }
 
         if res.action == Action::None {
-            Err(Error::Arg(ArgError::NoAction))
+            #[cfg(not(debug_assertions))]
+            {
+                Err(Error::Arg(ArgError::NoAction))
+            }
+            #[cfg(debug_assertions)]
+            {
+                Ok(res)
+            }
         } else {
             Ok(res)
         }

@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fs::{remove_dir_all, remove_file},
     process::Command,
 };
@@ -6,6 +7,7 @@ use std::{
 use arg_parser::{Action, Args};
 use builder::Builder;
 use config::Config;
+use dependency::get_dependencies;
 use dir_structure::DirStructure;
 use err::Result;
 
@@ -15,13 +17,14 @@ mod config;
 mod dependency;
 mod dir_structure;
 mod err;
+mod include_deps;
 
 const CONF_FILE: &str = "ccpp.toml";
 
 fn main() -> Result<()> {
     let args = Args::get()?;
     match args.action {
-        Action::None => Ok(()),
+        Action::None => debug_code(&args),
         Action::Clean => clean(&args),
         Action::Build => build(&args),
         Action::Run => run(&args),
@@ -108,5 +111,15 @@ Flags:
 ",
         v.unwrap_or("unknown")
     );
+    Ok(())
+}
+
+fn debug_code(args: &Args) -> Result<()> {
+    let (_conf, dir) = prepare(args)?;
+    let mut dep_dep = HashMap::new();
+    let deps = get_dependencies(&dir, &mut dep_dep)?;
+    for dep in &deps {
+        println!("{:?}", dep);
+    }
     Ok(())
 }

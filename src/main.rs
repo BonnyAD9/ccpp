@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs::{remove_dir_all, remove_file},
-    process::Command,
+    process::{Command, ExitCode},
 };
 
 use arg_parser::{Action, Args};
@@ -21,7 +21,17 @@ mod include_deps;
 
 const CONF_FILE: &str = "ccpp.toml";
 
-fn main() -> Result<()> {
+fn main() -> ExitCode {
+    match start() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            println!("{e}");
+            ExitCode::FAILURE
+        },
+    }
+}
+
+fn start() -> Result<()> {
     let args = Args::get()?;
     match args.action {
         Action::None => debug_code(&args),

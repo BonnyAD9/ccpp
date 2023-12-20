@@ -11,10 +11,6 @@ projects.
 
 Currently only C projects are supported.
 
-This is work in progress, currently included files are not counted as
-dependencies so the only way to build realibly is to use `ccpp clean`
-before each build.
-
 ## Usage
 Your project must have the folowing structure:
 - `src/` directory with your source files

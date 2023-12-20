@@ -1,4 +1,9 @@
-use std::{collections::{HashMap, HashSet, hash_set}, io, path::Path, rc::Rc};
+use std::{
+    collections::{HashMap, HashSet},
+    io,
+    path::Path,
+    rc::Rc,
+};
 
 use crate::{
     dir_structure::DirStructure,
@@ -146,7 +151,9 @@ impl Dependency {
 
                     if let Some(d) = indirect.next() {
                         to_exam.push(DepDirection::LastDeeper(d.clone()));
-                        to_exam.extend(indirect.map(|d| DepDirection::Same(d.clone())));
+                        to_exam.extend(
+                            indirect.map(|d| DepDirection::Same(d.clone())),
+                        );
                         dep_stack.push(dep);
                     } else {
                         dep_dep.insert(dep.file.clone(), dep);
@@ -171,7 +178,7 @@ impl Dependency {
         } else if let Some(res) = dep_stack.into_iter().next() {
             Ok(Self {
                 file: file.into(),
-                direct: vec![src.into()],
+                direct: res.direct,
                 indirect: res.indirect,
             })
         } else {

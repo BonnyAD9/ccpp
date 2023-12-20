@@ -1,10 +1,13 @@
-use std::{borrow::Cow, io, path::Path};
+use std::{borrow::Cow, io, path::Path, collections::{HashMap, VecDeque}};
 
-use crate::{dir_structure::DirStructure, err::Result};
+use crate::{
+    dir_structure::DirStructure, err::Result, include_deps::get_included_files,
+};
 
+#[derive(Debug, Clone)]
 pub struct Dependency<'a> {
     /// File that has dependencies
-    pub file: &'a Path,
+    pub file: Cow<'a, Path>,
     /// Direct dependencies to build [`Self::file`]
     pub direct: Vec<Cow<'a, Path>>,
     /// Indirect dependencies of [`Self::file`]
@@ -46,30 +49,78 @@ impl<'a> Dependency<'a> {
 /// Finds all dependencies for the project in the directory structure
 pub fn get_dependencies<'a>(
     dir: &'a DirStructure,
+    dep_dep: &'a mut HashMap<Cow<'a, Path>, Dependency<'a>>,
 ) -> Result<Vec<Dependency<'a>>> {
-    dir.objs()
-        .iter()
-        .zip(dir.srcs())
-        .map(|(obj, src)| Dependency::from_src(obj, src))
-        .collect()
+    let mut res = vec![];
+
+    for (obj, src) in dir.objs().iter().zip(dir.srcs()) {
+        res.push(Dependency::from_src(obj, src, dep_dep)?);
+    }
+
+    Ok(res)
 }
 
 //===========================================================================//
 //                                  Private                                  //
 //===========================================================================//
 
+enum DepDirection<'a> {
+    Deeper{path: Cow<'a, Path>, parent: Cow<'a, Path>},
+    Same(Cow<'a, Path>),
+    LastDeeper(Cow<'a, Path>),
+}
+
 /// Finds all dependencies of `file` from source file `src`
 impl<'a> Dependency<'a> {
-    fn from_src(file: &'a Path, src: &'a Path) -> Result<Self> {
-        let direct = vec![src.into()];
-        let indirect = vec![];
-
-        // TODO: indirect dependencies
-
-        Ok(Self {
+    fn new(file: Cow<'a, Path>) -> Self {
+        Self {
             file,
-            direct,
-            indirect,
-        })
+            direct: vec![],
+            indirect: vec![],
+        }
+    }
+
+    fn from_src(
+        file: &'a Path,
+        src: &'a Path,
+        dep_dep: &'a mut HashMap<Cow<'a, Path>, Dependency<'a>>,
+    ) -> Result<Self> {
+        let direct = vec![src.into()];
+        let mut indirect = vec![];
+
+        if let Some(parent) = src.parent() {
+            indirect.extend(
+                get_included_files(src)?
+                    .into_iter()
+                    .filter(|d| d.relative)
+                    .map(|d| parent.join(d.path).into()),
+            );
+        }
+
+        let mut to_exam: Vec<_> = indirect.iter().map(|f| DepDirection::Same(*f)).collect();
+        let mut dep_stack = vec![Self { file: src.into(), direct, indirect }];
+        while let Some(dep) = to_exam.pop() {
+            let mut pop = false;
+            let dep = match dep {
+                DepDirection::Deeper { path, parent } => {
+                    dep_stack.push(Self::new(parent));
+                    path
+                },
+                DepDirection::Same(path) => path,
+                DepDirection::LastDeeper(path) => {
+                    pop = true;
+                    path
+                }
+            };
+
+            // TODO
+
+            if pop {
+                // TODO
+                dep_stack.pop();
+            }
+        }
+
+        todo!("return last in dep_stack")
     }
 }

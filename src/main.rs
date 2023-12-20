@@ -6,6 +6,7 @@ use std::{
 use arg_parser::{Action, Args};
 use builder::Builder;
 use config::Config;
+use dependency::get_dependencies;
 use dir_structure::DirStructure;
 use err::Result;
 
@@ -22,7 +23,7 @@ const CONF_FILE: &str = "ccpp.toml";
 fn main() -> Result<()> {
     let args = Args::get()?;
     match args.action {
-        Action::None => Ok(()),
+        Action::None => debug_code(&args),
         Action::Clean => clean(&args),
         Action::Build => build(&args),
         Action::Run => run(&args),
@@ -109,5 +110,14 @@ Flags:
 ",
         v.unwrap_or("unknown")
     );
+    Ok(())
+}
+
+fn debug_code(args: &Args) -> Result<()> {
+    let (_conf, dir) = prepare(args)?;
+    let deps = get_dependencies(&dir)?;
+    for dep in &deps {
+        println!("{:?}", dep);
+    }
     Ok(())
 }

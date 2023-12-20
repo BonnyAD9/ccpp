@@ -1,29 +1,26 @@
-use std::{
-    borrow::Cow,
-    collections::HashMap,
-    io,
-    path::Path,
-};
+use std::{collections::HashMap, io, path::Path, rc::Rc};
 
 use crate::{
-    dir_structure::DirStructure, err::Result, include_deps::get_included_files,
+    dir_structure::DirStructure,
+    err::{Error, Result},
+    include_deps::get_included_files,
 };
 
 #[derive(Debug, Clone)]
-pub struct Dependency<'a> {
+pub struct Dependency {
     /// File that has dependencies
-    pub file: Cow<'a, Path>,
+    pub file: Rc<Path>,
     /// Direct dependencies to build [`Self::file`]
-    pub direct: Vec<Cow<'a, Path>>,
+    pub direct: Vec<Rc<Path>>,
     /// Indirect dependencies of [`Self::file`]
-    pub indirect: Vec<Cow<'a, Path>>,
+    pub indirect: Vec<Rc<Path>>,
 }
 
 //===========================================================================//
 //                                   Public                                  //
 //===========================================================================//
 
-impl<'a> Dependency<'a> {
+impl Dependency {
     pub fn is_up_to_date(&self) -> Result<bool> {
         if !self.file.exists() {
             return Ok(false);
@@ -52,10 +49,10 @@ impl<'a> Dependency<'a> {
 }
 
 /// Finds all dependencies for the project in the directory structure
-pub fn get_dependencies<'a>(
-    dir: &'a DirStructure,
-    dep_dep: &'a mut HashMap<Cow<'a, Path>, Dependency<'a>>,
-) -> Result<Vec<Dependency<'a>>> {
+pub fn get_dependencies(
+    dir: &DirStructure,
+    dep_dep: &mut HashMap<Rc<Path>, Dependency>,
+) -> Result<Vec<Dependency>> {
     let mut res = vec![];
 
     for (obj, src) in dir.objs().iter().zip(dir.srcs()) {
@@ -69,14 +66,14 @@ pub fn get_dependencies<'a>(
 //                                  Private                                  //
 //===========================================================================//
 
-enum DepDirection<'a> {
-    Same(Cow<'a, Path>),
-    LastDeeper(Cow<'a, Path>),
+enum DepDirection {
+    Same(Rc<Path>),
+    LastDeeper(Rc<Path>),
 }
 
 /// Finds all dependencies of `file` from source file `src`
-impl<'a> Dependency<'a> {
-    fn new(file: Cow<'a, Path>) -> Self {
+impl Dependency {
+    fn _new(file: Rc<Path>) -> Self {
         Self {
             file,
             direct: vec![],
@@ -84,10 +81,10 @@ impl<'a> Dependency<'a> {
         }
     }
 
-    fn from_src<'b>(
-        file: &'a Path,
-        src: &'a Path,
-        dep_dep: &'b mut HashMap<Cow<'b, Path>, Dependency<'b>>,
+    fn from_src(
+        file: &Path,
+        src: &Path,
+        dep_dep: &mut HashMap<Rc<Path>, Dependency>,
     ) -> Result<Self> {
         let direct = vec![src.into()];
         let mut indirect = vec![];
@@ -101,8 +98,10 @@ impl<'a> Dependency<'a> {
             );
         }
 
-        let mut to_exam: Vec<_> =
-            indirect.iter().map(|f| DepDirection::Same(*f)).collect();
+        let mut to_exam: Vec<_> = indirect
+            .iter()
+            .map(|f: &Rc<Path>| DepDirection::Same(f.clone()))
+            .collect();
         let mut dep_stack = vec![Self {
             file: src.into(),
             direct,
@@ -120,14 +119,19 @@ impl<'a> Dependency<'a> {
 
             if let Some(dep) = dep_dep.get(&file) {
                 if let Some(top) = dep_stack.last_mut() {
-                    top.indirect.extend(dep.indirect.iter().map(|d| *d));
+                    top.indirect
+                        .extend(dep.indirect.iter().map(|d| d.clone()));
                 }
-            } else if !dep_stack.iter().any(|d| d.file == file) {
+            } else {
                 if let Some(parent) = file.parent() {
                     let indirect = get_included_files(&file)?
                         .into_iter()
                         .filter(|d| d.relative)
                         .map(|d| parent.join(d.path).into())
+                        .filter(|d| {
+                            *d != file
+                                && !dep_stack.iter().any(|d2| d2.file == *d)
+                        })
                         .collect();
 
                     let dep = Self {
@@ -137,10 +141,17 @@ impl<'a> Dependency<'a> {
                     };
 
                     if dep.indirect.is_empty() {
-                        dep_dep.insert(dep.file, dep);
+                        dep_dep.insert(dep.file.clone(), dep);
                     } else {
-                        to_exam.push(DepDirection::LastDeeper(dep.indirect[0]));
-                        to_exam.extend(dep.indirect.iter().skip(1).map(|d| DepDirection::Same(*d)));
+                        to_exam.push(DepDirection::LastDeeper(
+                            dep.indirect[0].clone(),
+                        ));
+                        to_exam.extend(
+                            dep.indirect
+                                .iter()
+                                .skip(1)
+                                .map(|d| DepDirection::Same(d.clone())),
+                        );
                         dep_stack.push(dep);
                     }
                 }
@@ -149,17 +160,25 @@ impl<'a> Dependency<'a> {
             if pop {
                 if let Some(dep) = dep_stack.pop() {
                     if let Some(top_dep) = dep_stack.last_mut() {
-                        top_dep.indirect.extend(dep.indirect.iter().map(|d| *d));
+                        top_dep
+                            .indirect
+                            .extend(dep.indirect.iter().map(|d| d.clone()));
                     }
-                    dep_dep.insert(dep.file, dep);
+                    dep_dep.insert(dep.file.clone(), dep);
                 }
             }
         }
 
-        if dep_stack.len() != 1 {
-            eprintln!("Error that should never happen");
+        if dep_stack.len() > 1 {
+            Err(Error::DoesNotHappen("Dependency stack has too many items."))
+        } else if let Some(res) = dep_stack.into_iter().next() {
+            Ok(Self {
+                file: file.into(),
+                direct: vec![src.into()],
+                indirect: res.indirect,
+            })
+        } else {
+            Err(Error::DoesNotHappen("Dependency stack has no items"))
         }
-
-        Ok(dep_stack[0])
     }
 }

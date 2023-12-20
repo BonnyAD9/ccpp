@@ -1,9 +1,10 @@
 use std::{
+    collections::HashMap,
     env,
     ffi::OsStr,
     fs::create_dir_all,
     path::Path,
-    process::{Child, Command}, collections::HashMap,
+    process::{Child, Command},
 };
 
 use crate::{
@@ -95,7 +96,7 @@ impl Builder {
 
         let bin_dep = Dependency {
             file: dir.binary().into(),
-            direct: dir.objs().iter().map(|o| o.into()).collect(),
+            direct: dir.objs().iter().map(|o| o.as_path().into()).collect(),
             indirect: vec![],
         };
 

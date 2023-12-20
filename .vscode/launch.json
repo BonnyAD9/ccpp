@@ -20,7 +20,7 @@
                 }
             },
             "args": [],
-            "cwd": "${workspaceFolder}/examples/greet"
+            "cwd": "${workspaceFolder}/examples/deptest"
         },
         {
             "type": "lldb",

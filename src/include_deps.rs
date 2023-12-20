@@ -197,7 +197,7 @@ where
             next_chr!(chars, None);
             Ok(Some(IncFile {
                 path: res.into(),
-                relative: false,
+                relative: true,
             }))
         }
         _ => chars.esc_skip_while(|c| c != '\n').map(|_| None),

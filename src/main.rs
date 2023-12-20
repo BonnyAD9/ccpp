@@ -1,6 +1,7 @@
 use std::{
+    collections::HashMap,
     fs::{remove_dir_all, remove_file},
-    process::Command, collections::HashMap,
+    process::Command,
 };
 
 use arg_parser::{Action, Args};

@@ -1,0 +1,14 @@
+[project]
+name = "main"
+
+[build]
+cc = "cc"
+ld = "cc"
+cflags = ["-std=c17"]
+
+[debug_build]
+cflags = ["-g", "-O0", "-fsanitize=address", "-Wall"]
+ldflags = ["-fsanitize=address"]
+
+[release_build]
+cflags = ["-O3"]

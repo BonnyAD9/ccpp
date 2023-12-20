@@ -8,6 +8,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("This is a bug, please report it: {}", .0)]
+    DoesNotHappen(&'static str),
     #[error(transparent)]
     Arg(#[from] ArgError),
     #[error(

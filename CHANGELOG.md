@@ -1,5 +1,8 @@
 # CHANGELOG
 
+## v0.2.2
+- Fix parallel compilation
+
 ## v0.2.1
 - Fix missing dependencies
 

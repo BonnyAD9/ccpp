@@ -1,5 +1,8 @@
 # CHANGELOG
 
+## v0.2.1
+- Fix missing dependencies
+
 ## v0.2.0
 - Add the `new` command to create new projects
 - Colorful CLI

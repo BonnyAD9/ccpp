@@ -2,6 +2,7 @@
 
 ## current
 - Add the `new` command to create new projects
+- Colorful CLI
 
 ## v0.1.0
 - build C projects

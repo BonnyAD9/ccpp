@@ -67,7 +67,6 @@ fn clean(args: &Args) -> Result<()> {
 
 fn build(args: &Args) -> Result<()> {
     let (conf, dir) = prepare(args)?;
-    printcln!("{'g bold}  Building{'_}");
     build_loaded(args, &conf, &dir)
 }
 

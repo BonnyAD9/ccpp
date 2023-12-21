@@ -133,6 +133,8 @@ impl Builder {
             self.sync_link_file(dir.objs().iter(), dir.binary())?;
         }
 
+        printcln!("   {'bold g}Finished{'_} {}", dir.binary().to_string_lossy());
+
         Ok(())
     }
 }
@@ -162,19 +164,21 @@ impl Builder {
         }
 
         'files: while let Some(file) = files.next() {
-            for t in threads.iter_mut() {
-                if let Some(res) = t.try_wait()? {
-                    if !res.success() {
-                        return Err(Error::ProcessFailed(res.code()));
+            loop {
+                for t in threads.iter_mut() {
+                    if let Some(res) = t.try_wait()? {
+                        if !res.success() {
+                            return Err(Error::ProcessFailed(res.code()));
+                        }
+                        *t = self.start_build_file(
+                            file.direct.iter().map(|i| i.as_ref()),
+                            &file.file,
+                        )?;
+                        continue 'files;
                     }
-                    *t = self.start_build_file(
-                        file.direct.iter().map(|i| i.as_ref()),
-                        &file.file,
-                    )?;
-                    continue 'files;
                 }
+                thread::sleep(TIMEOUT);
             }
-            thread::sleep(TIMEOUT);
         }
 
         for thread in threads.into_iter() {

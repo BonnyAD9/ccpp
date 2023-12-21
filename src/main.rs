@@ -11,6 +11,7 @@ use config::{Config, Project};
 use dependency::get_dependencies;
 use dir_structure::DirStructure;
 use err::{Error, Result};
+use termal::{formatc, printcln, gradient};
 
 mod arg_parser;
 mod builder;
@@ -26,7 +27,7 @@ fn main() -> ExitCode {
     match start() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            println!("{e}");
+            eprintln!("{}", formatc!("{'r}Failure:{'_} {}", e));
             ExitCode::FAILURE
         }
     }
@@ -133,34 +134,35 @@ int main(void) {
 
 fn help(_args: &Args) -> Result<()> {
     let v: Option<&str> = option_env!("CARGO_PKG_VERSION");
-    println!(
-        "Welcome to ccpp help by BonnyAD9
+    printcln!(
+        "Welcome to {'g i}ccpp{'_} help by {}{'_}
 Version: {}
 
-Usage:
-  ccpp <action> [flags] [-- [arg] [arg] ...]
+{'g}Usage:
+  {'w}ccpp <action>{'_} {'gr}[flags] [-- [arg] [arg] ...]
 
-Actions:
-  help  h  -h  -?  --help
+{'g}Actions:
+  {'y}help  h  -h  -?  --help{'_}
     Shows this help.
 
-  clean
+  {'y}clean{'_}
     Delete all compiled files (binary and object files).
 
-  build
+  {'y}build{'_}
     Build the source code.
 
-  run
+  {'y}run{'_}
     Build the source and run the app with the arguments after `--`.
 
-  new [project folder]
+  {'y}new {'w}<project folder>{'_}
     Create a new project in the given folder. The project name will be the
     folder name. If the folder doesn't exist, it is created.
 
-Flags:
-  -r  --release
-    Build in release mode.
+{'g}Flags:
+  {'y}-r  --release{'_}
+    Build/run in release mode.
 ",
+        gradient("BonnyAD9", (250, 50, 170), (180, 50, 240)),
         v.unwrap_or("unknown")
     );
     Ok(())

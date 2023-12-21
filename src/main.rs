@@ -11,7 +11,7 @@ use config::{Config, Project};
 use dependency::get_dependencies;
 use dir_structure::DirStructure;
 use err::{Error, Result};
-use termal::{formatc, printcln, gradient};
+use termal::{formatc, gradient, printcln};
 
 mod arg_parser;
 mod builder;

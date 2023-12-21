@@ -67,12 +67,19 @@ fn clean(args: &Args) -> Result<()> {
 
 fn build(args: &Args) -> Result<()> {
     let (conf, dir) = prepare(args)?;
+    printcln!("{'g bold}  Building{'_}");
     build_loaded(args, &conf, &dir)
 }
 
 fn run(args: &Args) -> Result<()> {
     let (conf, dir) = prepare(args)?;
+    // printcln!("{'g bold}  Compiling{'_}");
+    // printcln!("{'g bold}    Linking{'_}");
     build_loaded(args, &conf, &dir)?;
+    printcln!(
+        "{'g bold}    Running{'_} {}",
+        dir.binary().to_string_lossy()
+    );
     run_loaded(args, &conf, &dir)
 }
 

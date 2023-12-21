@@ -108,7 +108,8 @@ impl Args {
         if res.action == Action::None {
             #[cfg(not(debug_assertions))]
             {
-                Err(Error::Arg(ArgError::NoAction))
+                res.action = Action::Help;
+                Ok(res)
             }
             #[cfg(debug_assertions)]
             {

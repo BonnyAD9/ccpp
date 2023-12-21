@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.75"
 serde = { version = "1.0.193", features = [ "serde_derive" ] }
+termal = "0.1.0"
 thiserror = "1.0.50"
 toml = "0.8.8"
 utf8-chars = "3.0.1"

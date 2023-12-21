@@ -99,7 +99,9 @@ impl Dependency {
                 get_included_files(src)?
                     .into_iter()
                     .filter(|d| d.relative)
-                    .map(|d| parent.join(d.path).into()),
+                    .map(|d| parent.join(d.path).canonicalize())
+                    .filter(|d| d.is_ok())
+                    .map(|d| d.unwrap().into()),
             );
         }
 
@@ -132,7 +134,9 @@ impl Dependency {
                     let indirect = get_included_files(&file)?
                         .into_iter()
                         .filter(|d| d.relative)
-                        .map(|d| parent.join(d.path).into())
+                        .map(|d| parent.join(d.path).canonicalize())
+                        .filter(|d| d.is_ok())
+                        .map(|d| d.unwrap().into())
                         .filter(|d| {
                             *d != file
                                 && !dep_stack.iter().any(|d2| d2.file == *d)

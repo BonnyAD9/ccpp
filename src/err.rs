@@ -8,6 +8,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("{}", .0)]
+    Generic(String),
     #[error("This is a bug, please report it: {}", .0)]
     DoesNotHappen(&'static str),
     #[error(transparent)]
@@ -17,6 +19,8 @@ pub enum Error {
         if let Some(c) = .0 { *c } else { 1 }
     )]
     ProcessFailed(Option<i32>),
+    #[error(transparent)]
+    TomlSerError(#[from] toml::ser::Error),
     #[error(transparent)]
     TomlDeError(#[from] toml::de::Error),
     #[error(transparent)]

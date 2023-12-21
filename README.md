@@ -20,6 +20,8 @@ Your project must have the folowing structure:
 
 ccpp generates binaries and object files in folder `bin`.
 
+You can generate new project folder structure with `ccpp new project_folder`.
+
 ### ccpp.toml
 Only the name of the project is required, all other fields are optional and
 they will have their default values if they are not present.

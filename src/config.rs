@@ -1,4 +1,7 @@
-use std::{fs::read_to_string, path::Path};
+use std::{
+    fs::{self, read_to_string},
+    path::Path,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +35,15 @@ impl Config {
         P: AsRef<Path>,
     {
         Ok(toml::from_str::<Self>(&read_to_string(path)?)?)
+    }
+
+    pub fn to_toml_file<P>(&self, path: P) -> Result<()>
+    where
+        P: AsRef<Path>,
+    {
+        let value = toml::to_string_pretty(self)?;
+        fs::write(path, value)?;
+        Ok(())
     }
 }
 

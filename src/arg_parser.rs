@@ -1,4 +1,4 @@
-use std::{env, path::PathBuf, fs::create_dir_all};
+use std::{env, fs::create_dir_all, path::PathBuf};
 
 use thiserror::Error;
 

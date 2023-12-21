@@ -1,7 +1,8 @@
 use std::{
     collections::HashMap,
-    fs::{remove_dir_all, remove_file, create_dir_all, self},
-    process::{Command, ExitCode}, path::Path,
+    fs::{self, create_dir_all, remove_dir_all, remove_file},
+    path::Path,
+    process::{Command, ExitCode},
 };
 
 use arg_parser::{Action, Args};
@@ -9,7 +10,7 @@ use builder::Builder;
 use config::{Config, Project};
 use dependency::get_dependencies;
 use dir_structure::DirStructure;
-use err::{Result, Error};
+use err::{Error, Result};
 
 mod arg_parser;
 mod builder;
@@ -98,7 +99,9 @@ fn new(_args: &Args, dir: &Path) -> Result<()> {
     let name = if let Some(name) = dir.file_name() {
         name.to_string_lossy()
     } else {
-        return Err(Error::Generic(format!("Couldn't get the directory name of {dir:?}")));
+        return Err(Error::Generic(format!(
+            "Couldn't get the directory name of {dir:?}"
+        )));
     };
 
     let conf = Config {
@@ -113,12 +116,15 @@ fn new(_args: &Args, dir: &Path) -> Result<()> {
     conf.to_toml_file(conf_path)?;
     if !src_path.exists() {
         create_dir_all(&src_path)?;
-        fs::write(src_path.join("main.c"), "#include <stdio.h>
+        fs::write(
+            src_path.join("main.c"),
+            "#include <stdio.h>
 
 int main(void) {
     printf(\"Hello World!\\n\");
 }
-")?;
+",
+        )?;
         fs::write(dir.join(".gitignore"), "bin\n")?;
     }
 

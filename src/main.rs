@@ -119,6 +119,7 @@ int main(void) {
     printf(\"Hello World!\\n\");
 }
 ")?;
+        fs::write(dir.join(".gitignore"), "bin\n")?;
     }
 
     Ok(())

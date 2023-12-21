@@ -3,6 +3,7 @@
 ## current
 - Add the `new` command to create new projects
 - Colorful CLI
+- Compile source files in parallel
 
 ## v0.1.0
 - build C projects

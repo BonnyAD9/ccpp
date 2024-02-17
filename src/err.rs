@@ -43,13 +43,13 @@ pub enum Error {
     )]
     ProcessFailed(Option<i32>),
     #[error(transparent)]
-    TomlSerError(#[from] toml::ser::Error),
+    TomlSer(#[from] toml::ser::Error),
     #[error(transparent)]
-    TomlDeError(#[from] toml::de::Error),
+    TomlDe(#[from] toml::de::Error),
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]
-    StripPrefixError(#[from] StripPrefixError),
+    StripPrefix(#[from] StripPrefixError),
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }

@@ -1,5 +1,10 @@
 use std::{
-    collections::HashSet, fs, mem, path::PathBuf, process::{Child, Command}, thread, time::Duration
+    collections::HashSet,
+    fs, mem,
+    path::PathBuf,
+    process::{Child, Command},
+    thread,
+    time::Duration,
 };
 
 use crate::{
@@ -127,7 +132,7 @@ impl Builder {
             }
         }
 
-        return Err(res);
+        Err(res)
     }
 }
 

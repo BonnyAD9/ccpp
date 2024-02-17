@@ -208,11 +208,10 @@ fn test_compiler(path: &Path) -> Option<CompilerType> {
         return Some(CompilerType::Other);
     }
 
-    const SPACE: u8 = ' ' as u8;
     let name = out
         .stdout
         .iter()
-        .position(|c| *c == SPACE)
+        .position(|c| *c == b' ')
         .map_or(out.stdout.as_slice(), |c| &out.stdout[..c]);
 
     let name = String::from_utf8_lossy(name);

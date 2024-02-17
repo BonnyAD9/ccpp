@@ -118,7 +118,7 @@ where
 pub fn get_included_files(file: DepFile) -> Result<Vec<IncFile>> {
     let mut res = vec![];
 
-    let mut file = BufReader::new(File::open(&file)?);
+    let mut file = BufReader::new(File::open(file)?);
     let mut chars = CharReader::new(&mut file);
 
     next_chr!(chars, res);
@@ -166,7 +166,7 @@ pub fn get_included_files(file: DepFile) -> Result<Vec<IncFile>> {
     }
 }
 
-fn read_macro<'a, R>(chars: &mut CharReader<'a, R>) -> Result<Option<IncFile>>
+fn read_macro<R>(chars: &mut CharReader<R>) -> Result<Option<IncFile>>
 where
     R: BufRead,
 {
@@ -204,7 +204,7 @@ where
     }
 }
 
-fn read_char<'a, R>(chars: &mut CharReader<'a, R>) -> Result<()>
+fn read_char<R>(chars: &mut CharReader<R>) -> Result<()>
 where
     R: BufRead,
 {
@@ -219,7 +219,7 @@ where
     Ok(())
 }
 
-fn read_string<'a, R>(chars: &mut CharReader<'a, R>) -> Result<()>
+fn read_string<R>(chars: &mut CharReader<R>) -> Result<()>
 where
     R: BufRead,
 {
@@ -234,7 +234,7 @@ where
     Ok(())
 }
 
-fn read_multiline_comment<'a, R>(chars: &mut CharReader<'a, R>) -> Result<()>
+fn read_multiline_comment<R>(chars: &mut CharReader<R>) -> Result<()>
 where
     R: BufRead,
 {
@@ -252,7 +252,7 @@ where
     }
 }
 
-fn read_line_comment<'a, R>(chars: &mut CharReader<'a, R>) -> Result<()>
+fn read_line_comment<R>(chars: &mut CharReader<R>) -> Result<()>
 where
     R: BufRead,
 {

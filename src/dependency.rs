@@ -57,7 +57,7 @@ impl AsRef<Path> for DepFile {
 
 impl From<PathBuf> for DepFile {
     fn from(value: PathBuf) -> Self {
-        let lang = value.extension().and_then(|ext| FileType::from_ext(ext));
+        let lang = value.extension().and_then(FileType::from_ext);
         Self {
             path: value.into(),
             typ: lang,
@@ -133,7 +133,7 @@ impl DepCache {
 
         for file in &dep.direct {
             let deps = self.get_dependencies(file.clone())?;
-            dep.indirect.extend(deps.indirect.iter().map(|i| i.clone()));
+            dep.indirect.extend(deps.indirect.iter().cloned());
         }
 
         Ok(())
@@ -171,47 +171,39 @@ impl DepCache {
 
             if let Some(dep) = self.cache.get(&file) {
                 if let Some(top) = dep_stack.last_mut() {
-                    top.indirect
-                        .extend(dep.indirect.iter().map(|d| d.clone()));
+                    top.indirect.extend(dep.indirect.iter().cloned());
                 }
-            } else {
-                if let Some(parent) = file.parent() {
-                    let indirect = get_included_files(file.clone())?
-                        .into_iter()
-                        .filter(|d| d.relative)
-                        .map(|d| parent.join(d.path).canonicalize())
-                        .filter(|d| d.is_ok())
-                        .map(|d| d.unwrap().into())
-                        .filter(|d| {
-                            *d != file
-                                && !dep_stack.iter().any(|d2| d2.file == *d)
-                        })
-                        .collect();
+            } else if let Some(parent) = file.parent() {
+                let indirect = get_included_files(file.clone())?
+                    .into_iter()
+                    .filter(|d| d.relative)
+                    .map(|d| parent.join(d.path).canonicalize())
+                    .filter(|d| d.is_ok())
+                    .map(|d| d.unwrap().into())
+                    .filter(|d| {
+                        *d != file && !dep_stack.iter().any(|d2| d2.file == *d)
+                    })
+                    .collect();
 
-                    //println!("{file:?}\n{dep_stack:?}\n{indirect:?}");
+                let dep = Dependency::new(file, vec![], indirect);
 
-                    let dep = Dependency::new(file, vec![], indirect);
+                let mut indirect = dep.indirect.iter();
 
-                    let mut indirect = dep.indirect.iter();
-
-                    if let Some(d) = indirect.next() {
-                        to_exam.push(DepDirection::LastDeeper(d.clone()));
-                        to_exam.extend(
-                            indirect.map(|d| DepDirection::Same(d.clone())),
-                        );
-                        dep_stack.push(dep);
-                    } else {
-                        self.cache.insert(dep.file.clone(), dep);
-                    }
+                if let Some(d) = indirect.next() {
+                    to_exam.push(DepDirection::LastDeeper(d.clone()));
+                    to_exam.extend(
+                        indirect.map(|d| DepDirection::Same(d.clone())),
+                    );
+                    dep_stack.push(dep);
+                } else {
+                    self.cache.insert(dep.file.clone(), dep);
                 }
             }
 
             if pop {
                 if let Some(dep) = dep_stack.pop() {
                     if let Some(top_dep) = dep_stack.last_mut() {
-                        top_dep
-                            .indirect
-                            .extend(dep.indirect.iter().map(|d| d.clone()));
+                        top_dep.indirect.extend(dep.indirect.iter().cloned());
                     }
                     self.cache.insert(dep.file.clone(), dep);
                 }

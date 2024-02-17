@@ -1,5 +1,7 @@
 use std::{
-    fs, io, path::Path, process::{Command, ExitCode}
+    fs, io,
+    path::Path,
+    process::{Command, ExitCode},
 };
 
 use arg_parser::{Action, Args};
@@ -42,7 +44,7 @@ fn start() -> Result<()> {
         Action::Build => build(&args),
         Action::Run => run(&args),
         Action::Help => help(&args),
-        Action::New(dir) => new(&args, &dir),
+        Action::New(dir) => new(&args, dir),
     }
 }
 
@@ -51,12 +53,12 @@ fn clean(_args: &Args) -> Result<()> {
     match fs::remove_dir_all(&conf.release_build.compiler_conf.bin_root) {
         Ok(_) => {}
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => Err(e)?
+        Err(e) => Err(e)?,
     }
     match fs::remove_dir_all(&conf.debug_build.compiler_conf.bin_root) {
         Ok(_) => {}
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => Err(e)?
+        Err(e) => Err(e)?,
     }
     Ok(())
 }

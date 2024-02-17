@@ -19,8 +19,8 @@
                     "kind": "bin"
                 }
             },
-            "args": [],
-            "cwd": "${workspaceFolder}/examples/deptest"
+            "args": ["run"],
+            "cwd": "${workspaceFolder}/examples/greet"
         },
         {
             "type": "lldb",

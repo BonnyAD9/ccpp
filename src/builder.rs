@@ -1,35 +1,31 @@
 use std::{
-    collections::{HashMap, HashSet},
-    env,
-    ffi::OsStr,
-    fs::create_dir_all,
-    path::Path,
-    process::{Child, Command},
-    thread,
-    time::Duration,
+    collections::HashSet, fs, mem, path::PathBuf, process::{Child, Command}, thread, time::Duration
 };
 
-use termal::{printc, printcln};
-
 use crate::{
+    compiler::Compiler,
     config::Config,
-    dependency::{get_dependencies, Dependency},
-    dir_structure::DirStructure,
+    dependency::{DepCache, DepFile, Dependency},
     err::{Error, Result},
+    file_type::{FileState, FileType, Language},
 };
 
 pub struct Builder {
     /// Max number of threads running at the same time
-    pub thread_count: usize,
-    /// C compiler
-    pub cc: String,
-    /// Linker
-    pub ld: String,
-    /// Aditional flags for compiler
-    pub cflags: Vec<String>,
-    /// Aditional flags for linker
-    pub ldflags: Vec<String>,
-    pub print_command: bool,
+    thread_count: usize,
+    compiler: Compiler,
+    print_command: bool,
+    built: HashSet<DepFile>,
+    dep_queue: Vec<Dependency>,
+    command_queue: Vec<QCommand>,
+    cache: DepCache,
+    pool: Vec<(Child, QCommand)>,
+}
+
+struct QCommand {
+    command: Command,
+    requires: Vec<DepFile>,
+    provides: Vec<DepFile>,
 }
 
 //===========================================================================//
@@ -37,239 +33,290 @@ pub struct Builder {
 //===========================================================================//
 
 impl Builder {
-    pub fn from_config(conf: &Config, release: bool) -> Self {
-        let mut cc = conf.build.cc.as_ref();
-        let mut ld = conf.build.ld.as_ref();
-        let mut cflags = conf
-            .build
-            .cflags
-            .as_ref()
-            .map_or_else(|| vec![], |f| f.clone());
-        let mut ldflags = conf
-            .build
-            .ldflags
-            .as_ref()
-            .map_or_else(|| vec![], |f| f.clone());
-
+    pub fn from_config(conf: &Config, release: bool) -> Result<Self> {
         let build = if release {
             &conf.release_build
         } else {
             &conf.debug_build
         };
 
-        if let Some(c) = &build.cc {
-            cc = Some(c)
-        }
-        if let Some(l) = &build.ld {
-            ld = Some(l)
-        }
-        if let Some(cf) = &build.cflags {
-            cflags.extend(cf.iter().map(|f| f.clone()));
-        }
-        if let Some(lf) = &build.ldflags {
-            ldflags.extend(lf.iter().map(|f| f.clone()));
-        }
-
-        Self {
+        Ok(Self {
             thread_count: std::thread::available_parallelism()
                 .map_or(1, |t| t.get().checked_sub(2).unwrap_or(1)),
-            cc: cc
-                .map(|c| c.to_owned())
-                .or(env::var("CC").ok())
-                .unwrap_or_else(|| "cc".to_owned()),
-            ld: ld
-                .map(|c| c.to_owned())
-                .or(env::var("LD").ok())
-                .unwrap_or_else(|| "ld".to_owned()),
-            cflags,
-            ldflags,
+            compiler: Compiler::new(
+                build.cc.clone(),
+                build.cpp.clone(),
+                &build.compiler_conf,
+            )?,
             print_command: true,
+            built: HashSet::new(),
+            dep_queue: vec![],
+            command_queue: vec![],
+            cache: DepCache::new(),
+            pool: vec![],
+        })
+    }
+
+    pub fn build_all<P1, P2, I>(
+        &mut self,
+        target: P1,
+        sources: I,
+    ) -> Result<()>
+    where
+        P1: Into<PathBuf>,
+        P2: Into<PathBuf>,
+        I: IntoIterator<Item = P2>,
+    {
+        let mut lang = Language::C;
+        let direct = sources
+            .into_iter()
+            .map(|s| {
+                let res: DepFile = s.into().into();
+                if matches!(
+                    res.typ,
+                    Some(FileType {
+                        lang: Language::Cpp,
+                        ..
+                    })
+                ) {
+                    lang = Language::Cpp;
+                }
+                res
+            })
+            .collect();
+
+        let file = DepFile {
+            path: target.into().into(),
+            typ: Some(FileType {
+                lang,
+                state: FileState::Executable,
+            }),
+        };
+
+        let mut file = Dependency::new(file, direct, Default::default());
+
+        self.cache.fill_dependency(&mut file)?;
+        self.queue_target(file)?;
+        self.build()
+    }
+
+    pub fn queue_target(&mut self, target: Dependency) -> Result<()> {
+        if !target.is_up_to_date()? {
+            self.dep_queue.push(target);
+        }
+        Ok(())
+    }
+
+    pub fn build(&mut self) -> Result<()> {
+        let mut child_pool: Vec<(Child, QCommand)> = vec![];
+
+        // don't return until all processes have exited
+
+        let res = if let Err(e) = self.build_with_pool(&mut child_pool) {
+            e
+        } else {
+            return Ok(());
+        };
+
+        // wait for all proceses to exit
+        for (mut c, _) in child_pool {
+            if c.wait().is_err() {
+                // if kill fails, there is nothing we can do to exit the
+                // process
+                _ = c.kill();
+            }
+        }
+
+        return Err(res);
+    }
+}
+
+impl Builder {
+    fn build_with_pool(
+        &mut self,
+        pool: &mut Vec<(Child, QCommand)>,
+    ) -> Result<()> {
+        loop {
+            match self.select_command() {
+                Ok(Some(cmd)) => {
+                    self.wait_and_run_command(pool, cmd)?;
+                }
+                Ok(None) => break,
+                Err(Error::DependencyCycle) => {
+                    if !self.wait_for_any(pool)? {
+                        return Err(Error::DependencyCycle);
+                    }
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        self.wait_for_all(pool)
+    }
+
+    fn select_command(&mut self) -> Result<Option<QCommand>> {
+        let mut idx = None;
+
+        for (i, c) in self.command_queue.iter_mut().enumerate().rev() {
+            c.requires.retain(|i| !self.built.contains(i));
+            if c.requires.is_empty() {
+                idx = Some(i);
+                break;
+            }
+        }
+
+        if let Some(i) = idx {
+            return Ok(Some(self.command_queue.remove(i)));
+        }
+
+        let mut cmd = None;
+
+        while let Some(c) = self.fetch_command()? {
+            if c.requires.is_empty() {
+                cmd = Some(c);
+                break;
+            }
+            self.command_queue.push(c);
+        }
+
+        if let Some(cmd) = cmd {
+            return Ok(Some(cmd));
+        }
+
+        if self.command_queue.is_empty() {
+            Ok(None)
+        } else {
+            Err(Error::DependencyCycle)
         }
     }
 
-    pub fn build(&self, dir: &DirStructure) -> Result<()> {
-        let mut dep_deps = HashMap::new();
-        let deps = get_dependencies(dir, &mut dep_deps)?;
-
-        let mut to_build = vec![];
-
-        for file in deps {
-            if !file.is_up_to_date()? {
-                to_build.push(file);
-            }
-        }
-
-        if self.thread_count <= 1 {
-            for file in to_build {
-                self.sync_build_file(
-                    file.direct.iter().map(|i| i.as_ref()),
-                    file.file.as_ref(),
-                )?;
-            }
+    fn fetch_command(&mut self) -> Result<Option<QCommand>> {
+        let file = if let Some(file) = self.dep_queue.pop() {
+            file
         } else {
-            let mut threads = vec![];
-            if let Err(e) = self.parallel_build(to_build, &mut threads) {
-                for mut thread in threads {
-                    if let Err(e) = thread.wait() {
-                        printcln!(
-                            "      {'r bold}Error{'_}\
-                            failed to wait for thread: {}",
-                            e
-                        );
-                        _ = thread.kill();
-                    }
-                }
-                return Err(e);
-            }
-        }
-
-        let bin_dep = Dependency {
-            file: dir.binary().into(),
-            direct: dir.objs().iter().map(|o| o.as_path().into()).collect(),
-            indirect: HashSet::new(),
+            return Ok(None);
         };
 
-        if !bin_dep.is_up_to_date()? {
-            self.sync_link_file(dir.objs().iter(), dir.binary())?;
+        let resolved = file.file.clone();
+        let (command, mut deps) = self.compiler.build(file)?;
+        deps.retain(|d| {
+            !self.built.contains(&d.file)
+                && !self.pool.iter().any(|p| p.1.provides.contains(&d.file))
+        });
+
+        let mut i = 0;
+        while i < deps.len() {
+            self.cache.fill_dependency(&mut deps[i])?;
+            if deps[i].is_up_to_date()? {
+                deps.remove(i);
+                continue;
+            }
+            i += 1;
         }
 
-        printcln!("   {'bold g}Finished{'_} {}", dir.binary().to_string_lossy());
+        let res = QCommand {
+            command,
+            requires: deps.iter().map(|d| d.file.clone()).collect(),
+            provides: vec![resolved],
+        };
+
+        for d in deps.iter_mut() {
+            self.cache.fill_dependency(d)?;
+        }
+
+        self.dep_queue.extend(deps.into_iter().rev());
+
+        Ok(Some(res))
+    }
+
+    fn wait_and_run_command(
+        &mut self,
+        pool: &mut Vec<(Child, QCommand)>,
+        mut cmd: QCommand,
+    ) -> Result<()> {
+        if pool.len() < self.thread_count {
+            let child = cmd.run(self.print_command)?;
+            pool.push((child, cmd));
+            return Ok(());
+        }
+
+        'wait: loop {
+            for run in pool.iter_mut() {
+                if let Some(r) = run.0.try_wait()? {
+                    if !r.success() {
+                        return Err(Error::ProcessFailed(r.code()));
+                    }
+                    let child = cmd.run(self.print_command)?;
+                    let run = mem::replace(run, (child, cmd));
+                    self.built.extend(run.1.provides);
+                    break 'wait;
+                }
+            }
+            // Arbitrary sleep time so that the thread isn't using all its
+            // power to just check in cycle that no processes exited.
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        Ok(())
+    }
+
+    fn wait_for_any(
+        &mut self,
+        pool: &mut Vec<(Child, QCommand)>,
+    ) -> Result<bool> {
+        if pool.is_empty() {
+            return Ok(false);
+        }
+
+        let idx = 'wait: loop {
+            for (i, run) in pool.iter_mut().enumerate() {
+                if let Some(r) = run.0.try_wait()? {
+                    if !r.success() {
+                        return Err(Error::ProcessFailed(r.code()));
+                    }
+                    break 'wait i;
+                }
+            }
+            // Arbitrary sleep time so that the thread isn't using all its
+            // power to just check in cycle that no processes exited.
+            thread::sleep(Duration::from_millis(10));
+        };
+
+        let run = pool.swap_remove(idx);
+        self.built.extend(run.1.provides);
+        Ok(true)
+    }
+
+    fn wait_for_all(
+        &mut self,
+        pool: &mut Vec<(Child, QCommand)>,
+    ) -> Result<()> {
+        while let Some(mut cmd) = pool.pop() {
+            let r = cmd.0.wait()?;
+            if !r.success() {
+                pool.push(cmd);
+                return Err(Error::ProcessFailed(r.code()));
+            }
+        }
 
         Ok(())
     }
 }
 
-//===========================================================================//
-//                                  Private                                  //
-//===========================================================================//
-
-impl Builder {
-    fn parallel_build(
-        &self,
-        files: Vec<Dependency>,
-        threads: &mut Vec<Child>,
-    ) -> Result<()> {
-        const TIMEOUT: Duration = Duration::from_millis(10);
-
-        let mut files = files.into_iter();
-
-        while let Some(file) = files.next() {
-            threads.push(self.start_build_file(
-                file.direct.iter().map(|i| i.as_ref()),
-                &file.file,
-            )?);
-            if threads.len() == self.thread_count {
-                break;
+impl QCommand {
+    fn run(&mut self, print: bool) -> Result<Child> {
+        for r in &self.provides {
+            if let Some(p) = r.parent() {
+                fs::create_dir_all(p)?;
             }
         }
-
-        'files: while let Some(file) = files.next() {
-            loop {
-                for t in threads.iter_mut() {
-                    if let Some(res) = t.try_wait()? {
-                        if !res.success() {
-                            return Err(Error::ProcessFailed(res.code()));
-                        }
-                        *t = self.start_build_file(
-                            file.direct.iter().map(|i| i.as_ref()),
-                            &file.file,
-                        )?;
-                        continue 'files;
-                    }
-                }
-                thread::sleep(TIMEOUT);
-            }
-        }
-
-        for thread in threads.into_iter() {
-            let res = thread.wait()?;
-            if !res.success() {
-                return Err(Error::ProcessFailed(res.code()));
-            }
-        }
-
-        Ok(())
-    }
-
-    fn start_build_file<'a, S, I>(
-        &self,
-        input: I,
-        output: &Path,
-    ) -> Result<Child>
-    where
-        S: AsRef<OsStr>,
-        I: Iterator<Item = S> + Clone,
-    {
-        if let Some(d) = output.parent() {
-            create_dir_all(d)?;
-        }
-
-        let mut cmd = Command::new(&self.cc);
-        cmd.args(self.cflags.iter())
-            .arg("-o")
-            .arg(output)
-            .arg("-c")
-            .args(input.clone());
-
-        if self.print_command {
-            printc!("{'g bold}  Compiling{'_}");
-            for f in input {
-                print!(" {}", f.as_ref().to_string_lossy());
+        if print {
+            print!("{}", self.command.get_program().to_string_lossy());
+            for a in self.command.get_args() {
+                print!(" '{}'", a.to_string_lossy());
             }
             println!();
         }
-        Ok(cmd.spawn()?)
-    }
-
-    fn sync_build_file<'a, S, I>(&self, input: I, output: &Path) -> Result<()>
-    where
-        S: AsRef<OsStr>,
-        I: Iterator<Item = S> + Clone,
-    {
-        let res = self.start_build_file(input, output)?.wait()?;
-        if !res.success() {
-            Err(Error::ProcessFailed(res.code()))
-        } else {
-            Ok(())
-        }
-    }
-
-    fn start_link_file<'a, S, I>(
-        &self,
-        input: I,
-        output: &Path,
-    ) -> Result<Child>
-    where
-        S: AsRef<OsStr>,
-        I: Iterator<Item = S>,
-    {
-        if let Some(d) = output.parent() {
-            create_dir_all(d)?;
-        }
-
-        let mut cmd = Command::new(&self.ld);
-        cmd.args(self.ldflags.iter())
-            .arg("-o")
-            .arg(output)
-            .args(input);
-
-        if self.print_command {
-            printcln!("{'g bold}    Linking{'_} {}", output.to_string_lossy());
-        }
-
-        Ok(cmd.spawn()?)
-    }
-
-    fn sync_link_file<'a, S, I>(&self, input: I, output: &Path) -> Result<()>
-    where
-        S: AsRef<OsStr>,
-        I: Iterator<Item = S>,
-    {
-        let res = self.start_link_file(input, output)?.wait()?;
-        if !res.success() {
-            Err(Error::ProcessFailed(res.code()))
-        } else {
-            Ok(())
-        }
+        Ok(self.command.spawn()?)
     }
 }

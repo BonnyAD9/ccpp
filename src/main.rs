@@ -1,25 +1,26 @@
 use std::{
-    collections::HashMap,
-    fs::{self, create_dir_all, remove_dir_all, remove_file},
-    path::Path,
-    process::{Command, ExitCode},
+    fs, io, path::Path, process::{Command, ExitCode}
 };
 
 use arg_parser::{Action, Args};
 use builder::Builder;
-use config::{Config, Project};
-use dependency::get_dependencies;
+use config::Config;
 use dir_structure::DirStructure;
 use err::{Error, Result};
 use termal::{formatc, gradient, printcln};
 
+use crate::serde_config::{SerdeConfig, SerdeProject};
+
 mod arg_parser;
 mod builder;
+mod compiler;
 mod config;
 mod dependency;
 mod dir_structure;
 mod err;
+mod file_type;
 mod include_deps;
+mod serde_config;
 
 const CONF_FILE: &str = "ccpp.toml";
 
@@ -45,23 +46,18 @@ fn start() -> Result<()> {
     }
 }
 
-fn clean(args: &Args) -> Result<()> {
+fn clean(_args: &Args) -> Result<()> {
     let conf = Config::from_toml_file(CONF_FILE)?;
-    let dir = DirStructure::from_config(&conf, args.release);
-
-    if dir.rel_obj().exists() {
-        remove_dir_all(dir.rel_obj())?;
+    match fs::remove_dir_all(&conf.release_build.compiler_conf.bin_root) {
+        Ok(_) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => Err(e)?
     }
-    if dir.deb_obj().exists() {
-        remove_dir_all(dir.deb_obj())?;
+    match fs::remove_dir_all(&conf.debug_build.compiler_conf.bin_root) {
+        Ok(_) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => Err(e)?
     }
-    if dir.rel_bin().exists() {
-        remove_file(dir.rel_bin())?;
-    }
-    if dir.deb_bin().exists() {
-        remove_file(dir.deb_bin())?;
-    }
-
     Ok(())
 }
 
@@ -75,27 +71,36 @@ fn run(args: &Args) -> Result<()> {
     // printcln!("{'g bold}  Compiling{'_}");
     // printcln!("{'g bold}    Linking{'_}");
     build_loaded(args, &conf, &dir)?;
-    printcln!(
-        "{'g bold}    Running{'_} {}",
-        dir.binary().to_string_lossy()
-    );
-    run_loaded(args, &conf, &dir)
+    printcln!("{'g bold}    Running{'_} {}", conf.project.name);
+    run_loaded(args, &conf)
 }
 
 fn prepare(args: &Args) -> Result<(Config, DirStructure)> {
     let conf = Config::from_toml_file(CONF_FILE)?;
     let mut dir = DirStructure::from_config(&conf, args.release);
-    dir.analyze(args.release)?;
+    dir.analyze()?;
     Ok((conf, dir))
 }
 
 fn build_loaded(args: &Args, conf: &Config, dir: &DirStructure) -> Result<()> {
-    let bld = Builder::from_config(conf, args.release);
-    bld.build(dir)
+    let mut bld = Builder::from_config(conf, args.release)?;
+    let target = if args.release {
+        &conf.release_build.target
+    } else {
+        &conf.debug_build.target
+    };
+
+    bld.build_all(target, dir.srcs())
 }
 
-fn run_loaded(args: &Args, _conf: &Config, dir: &DirStructure) -> Result<()> {
-    Command::new(dir.binary())
+fn run_loaded(args: &Args, conf: &Config) -> Result<()> {
+    let target = if args.release {
+        &conf.release_build.target
+    } else {
+        &conf.debug_build.target
+    };
+
+    Command::new(target)
         .args(args.app_args.iter())
         .spawn()?
         .wait()?;
@@ -111,18 +116,20 @@ fn new(_args: &Args, dir: &Path) -> Result<()> {
         )));
     };
 
-    let conf = Config {
-        project: Project {
+    let conf = SerdeConfig {
+        project: SerdeProject {
             name: name.into_owned(),
+            src: None,
+            bin: None,
         },
-        ..Config::default()
+        ..SerdeConfig::default()
     };
 
     let conf_path = dir.join("ccpp.toml");
     let src_path = dir.join("src");
     conf.to_toml_file(conf_path)?;
     if !src_path.exists() {
-        create_dir_all(&src_path)?;
+        fs::create_dir_all(&src_path)?;
         fs::write(
             src_path.join("main.c"),
             "#include <stdio.h>
@@ -174,12 +181,12 @@ Version: {}
     Ok(())
 }
 
-fn debug_code(args: &Args) -> Result<()> {
+fn debug_code(_args: &Args) -> Result<()> {
+    /*
     let (_conf, dir) = prepare(args)?;
-    let mut dep_dep = HashMap::new();
-    let deps = get_dependencies(&dir, &mut dep_dep)?;
+    let deps = get_dependencies(&dir)?;
     for dep in &deps {
         println!("{:?}", dep);
-    }
+    }*/
     Ok(())
 }

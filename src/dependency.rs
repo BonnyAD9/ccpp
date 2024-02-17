@@ -1,24 +1,77 @@
 use std::{
     collections::{HashMap, HashSet},
+    hash::Hash,
     io,
-    path::Path,
+    ops::Deref,
+    path::{Path, PathBuf},
     rc::Rc,
 };
 
 use crate::{
-    dir_structure::DirStructure,
     err::{Error, Result},
+    file_type::FileType,
     include_deps::get_included_files,
 };
 
 #[derive(Debug, Clone)]
 pub struct Dependency {
     /// File that has dependencies
-    pub file: Rc<Path>,
+    pub file: DepFile,
     /// Direct dependencies to build [`Self::file`]
-    pub direct: Vec<Rc<Path>>,
+    pub direct: Vec<DepFile>,
     /// Indirect dependencies of [`Self::file`]
-    pub indirect: HashSet<Rc<Path>>,
+    pub indirect: HashSet<DepFile>,
+}
+
+#[derive(Clone, Eq, Debug)]
+pub struct DepFile {
+    pub path: Rc<Path>,
+    pub typ: Option<FileType>,
+}
+
+impl PartialEq for DepFile {
+    fn eq(&self, other: &Self) -> bool {
+        self.path == other.path
+    }
+}
+
+impl Hash for DepFile {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.path.hash(state);
+    }
+}
+
+impl Deref for DepFile {
+    type Target = Path;
+
+    fn deref(&self) -> &Self::Target {
+        &self.path
+    }
+}
+
+impl AsRef<Path> for DepFile {
+    fn as_ref(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl From<PathBuf> for DepFile {
+    fn from(value: PathBuf) -> Self {
+        let lang = value.extension().and_then(|ext| FileType::from_ext(ext));
+        Self {
+            path: value.into(),
+            typ: lang,
+        }
+    }
+}
+
+pub struct DepCache {
+    cache: HashMap<DepFile, Dependency>,
+}
+
+enum DepDirection {
+    Same(DepFile),
+    LastDeeper(DepFile),
 }
 
 //===========================================================================//
@@ -26,6 +79,18 @@ pub struct Dependency {
 //===========================================================================//
 
 impl Dependency {
+    pub fn new(
+        file: DepFile,
+        direct: Vec<DepFile>,
+        indirect: HashSet<DepFile>,
+    ) -> Self {
+        Self {
+            file,
+            direct,
+            indirect,
+        }
+    }
+
     pub fn is_up_to_date(&self) -> Result<bool> {
         if !self.file.exists() {
             return Ok(false);
@@ -53,67 +118,47 @@ impl Dependency {
     }
 }
 
-/// Finds all dependencies for the project in the directory structure
-pub fn get_dependencies(
-    dir: &DirStructure,
-    dep_dep: &mut HashMap<Rc<Path>, Dependency>,
-) -> Result<Vec<Dependency>> {
-    let mut res = vec![];
-
-    for (obj, src) in dir.objs().iter().zip(dir.srcs()) {
-        res.push(Dependency::from_src(obj, src, dep_dep)?);
-    }
-
-    Ok(res)
-}
-
-//===========================================================================//
-//                                  Private                                  //
-//===========================================================================//
-
-enum DepDirection {
-    Same(Rc<Path>),
-    LastDeeper(Rc<Path>),
-}
-
-/// Finds all dependencies of `file` from source file `src`
-impl Dependency {
-    fn _new(file: Rc<Path>) -> Self {
+impl DepCache {
+    pub fn new() -> Self {
         Self {
-            file,
-            direct: vec![],
-            indirect: HashSet::new(),
+            cache: HashMap::new(),
         }
     }
 
-    fn from_src(
-        file: &Path,
-        src: &Path,
-        dep_dep: &mut HashMap<Rc<Path>, Dependency>,
-    ) -> Result<Self> {
-        let direct = vec![src.into()];
-        let mut indirect = HashSet::new();
+    /// Finds the indirect dependencies for the given dependency file.
+    pub fn fill_dependency(&mut self, dep: &mut Dependency) -> Result<()> {
+        if self.cache.contains_key(&dep.file) {
+            return Err(Error::DuplicateDependency);
+        }
 
-        if let Some(parent) = src.parent() {
+        for file in &dep.direct {
+            let deps = self.get_dependencies(file.clone())?;
+            dep.indirect.extend(deps.indirect.iter().map(|i| i.clone()));
+        }
+
+        Ok(())
+    }
+
+    pub fn get_dependencies(&mut self, file: DepFile) -> Result<&Dependency> {
+        let mut indirect: HashSet<DepFile> = HashSet::new();
+
+        if let Some(parent) = file.parent() {
             indirect.extend(
-                get_included_files(src)?
+                get_included_files(file.clone())?
                     .into_iter()
                     .filter(|d| d.relative)
                     .map(|d| parent.join(d.path).canonicalize())
-                    .filter(|d| d.is_ok())
-                    .map(|d| d.unwrap().into()),
+                    .filter_map(|d| d.ok())
+                    .map(|d| d.into()),
             );
         }
 
         let mut to_exam: Vec<_> = indirect
             .iter()
-            .map(|f: &Rc<Path>| DepDirection::Same(f.clone()))
+            .map(|f| DepDirection::Same(f.clone()))
             .collect();
-        let mut dep_stack = vec![Self {
-            file: src.into(),
-            direct,
-            indirect,
-        }];
+        let mut dep_stack =
+            vec![Dependency::new(file.clone(), vec![], indirect)];
         while let Some(file) = to_exam.pop() {
             let mut pop = false;
             let file = match file {
@@ -124,14 +169,14 @@ impl Dependency {
                 }
             };
 
-            if let Some(dep) = dep_dep.get(&file) {
+            if let Some(dep) = self.cache.get(&file) {
                 if let Some(top) = dep_stack.last_mut() {
                     top.indirect
                         .extend(dep.indirect.iter().map(|d| d.clone()));
                 }
             } else {
                 if let Some(parent) = file.parent() {
-                    let indirect = get_included_files(&file)?
+                    let indirect = get_included_files(file.clone())?
                         .into_iter()
                         .filter(|d| d.relative)
                         .map(|d| parent.join(d.path).canonicalize())
@@ -145,11 +190,7 @@ impl Dependency {
 
                     //println!("{file:?}\n{dep_stack:?}\n{indirect:?}");
 
-                    let dep = Self {
-                        file,
-                        direct: vec![],
-                        indirect,
-                    };
+                    let dep = Dependency::new(file, vec![], indirect);
 
                     let mut indirect = dep.indirect.iter();
 
@@ -160,7 +201,7 @@ impl Dependency {
                         );
                         dep_stack.push(dep);
                     } else {
-                        dep_dep.insert(dep.file.clone(), dep);
+                        self.cache.insert(dep.file.clone(), dep);
                     }
                 }
             }
@@ -172,7 +213,7 @@ impl Dependency {
                             .indirect
                             .extend(dep.indirect.iter().map(|d| d.clone()));
                     }
-                    dep_dep.insert(dep.file.clone(), dep);
+                    self.cache.insert(dep.file.clone(), dep);
                 }
             }
         }
@@ -180,11 +221,10 @@ impl Dependency {
         if dep_stack.len() > 1 {
             Err(Error::DoesNotHappen("Dependency stack has too many items."))
         } else if let Some(res) = dep_stack.into_iter().next() {
-            Ok(Self {
-                file: file.into(),
-                direct: res.direct,
-                indirect: res.indirect,
-            })
+            self.cache.insert(file.clone(), res);
+            self.cache.get(&file).ok_or(Error::DoesNotHappen(
+                "Item just iserted into hashmap is not in the hashmap?",
+            ))
         } else {
             Err(Error::DoesNotHappen("Dependency stack has no items"))
         }

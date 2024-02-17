@@ -1,10 +1,10 @@
 use utf8_chars::{BufReadCharsExt, Chars};
 
-use crate::err::Result;
+use crate::{dependency::DepFile, err::Result};
 use std::{
     fs::File,
     io::{BufRead, BufReader},
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 macro_rules! next_chr {
@@ -115,10 +115,10 @@ where
     }
 }
 
-pub fn get_included_files(file: &Path) -> Result<Vec<IncFile>> {
+pub fn get_included_files(file: DepFile) -> Result<Vec<IncFile>> {
     let mut res = vec![];
 
-    let mut file = BufReader::new(File::open(file)?);
+    let mut file = BufReader::new(File::open(&file)?);
     let mut chars = CharReader::new(&mut file);
 
     next_chr!(chars, res);

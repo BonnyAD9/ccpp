@@ -9,7 +9,9 @@ pub enum Language {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum FileState {
     Source,
+    SourceModule,
     Header,
+    Precompiled,
     Object,
     Executable,
 }

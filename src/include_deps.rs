@@ -17,10 +17,16 @@ macro_rules! next_chr {
     };
 }
 
-pub struct IncFile {
-    pub path: PathBuf,
-    // when true file included as `"file"` otherwise included as `<file>`
-    pub relative: bool,
+pub enum IncFile {
+    User(PathBuf),
+    System(PathBuf),
+    ExpModule(String),
+    ImpModule(String),
+    ExpImpModule(String),
+    UserModule(PathBuf),
+    SystemModule(PathBuf),
+    ExpUserModule(PathBuf),
+    ExpSystemModule(PathBuf),
 }
 
 struct CharReader<'a, R>
@@ -39,6 +45,31 @@ where
         Self {
             chars: read.chars(),
             cur: ' ',
+        }
+    }
+
+    fn read_while<F>(&mut self, f: F) -> Result<String> where F: Fn(char) -> bool {
+        let mut res = String::new();
+        self.read_to_while(f, &mut res)?;
+        Ok(res)
+    }
+
+    fn read_to_while<F>(&mut self, f: F, res: &mut String) -> Result<()> where F: Fn(char) -> bool {
+        loop {
+            if !f(self.cur) {
+                return Ok(());
+            }
+            res.push(self.cur);
+            next_chr!(self, ());
+        }
+    }
+
+    fn skip_while<F>(&mut self, f: F) -> Result<()> where F: Fn(char) -> bool {
+        loop {
+            if !f(self.cur) {
+                return Ok(());
+            }
+            next_chr!(self, ());
         }
     }
 
@@ -115,7 +146,7 @@ where
     }
 }
 
-pub fn get_included_files(file: DepFile) -> Result<Vec<IncFile>> {
+pub fn get_included_files(file: &DepFile) -> Result<Vec<IncFile>> {
     let mut res = vec![];
 
     let mut file = BufReader::new(File::open(file)?);
@@ -123,6 +154,7 @@ pub fn get_included_files(file: DepFile) -> Result<Vec<IncFile>> {
 
     next_chr!(chars, res);
 
+    let mut module_section = true;
     let mut prev_newline = true;
     loop {
         match chars.cur {
@@ -149,10 +181,8 @@ pub fn get_included_files(file: DepFile) -> Result<Vec<IncFile>> {
                 next_chr!(chars, res);
                 if chars.cur == '*' {
                     read_multiline_comment(&mut chars)?;
-                    prev_newline = false;
                 } else if chars.cur == '/' {
                     read_line_comment(&mut chars)?;
-                    prev_newline = false;
                 } else {
                     prev_newline = false;
                     next_chr!(chars, res);
@@ -160,7 +190,17 @@ pub fn get_included_files(file: DepFile) -> Result<Vec<IncFile>> {
             }
             _ => {
                 prev_newline = false;
-                next_chr!(chars, res);
+                if module_section {
+                    if let (f, true) = read_module(&mut chars)? {
+                        if let Some(f) = f {
+                            res.push(f);
+                        }
+                    } else {
+                        module_section = false;
+                    }
+                } else {
+                    next_chr!(chars, res);
+                }
             }
         }
     }
@@ -186,19 +226,13 @@ where
             next_chr!(chars, None);
             let res = chars.esc_read_while(|c| c != '>')?;
             next_chr!(chars, None);
-            Ok(Some(IncFile {
-                path: res.into(),
-                relative: false,
-            }))
+            Ok(Some(IncFile::System(res.into())))
         }
         '"' => {
             next_chr!(chars, None);
             let res = chars.esc_read_while(|c| c != '"')?;
             next_chr!(chars, None);
-            Ok(Some(IncFile {
-                path: res.into(),
-                relative: true,
-            }))
+            Ok(Some(IncFile::User(res.into())))
         }
         _ => chars.esc_skip_while(|c| c != '\n').map(|_| None),
     }
@@ -257,4 +291,96 @@ where
     R: BufRead,
 {
     chars.esc_skip_while(|c| c != '\n')
+}
+
+fn read_module<R>(chars: &mut CharReader<R>) -> Result<(Option<IncFile>, bool)> where R: BufRead {
+    let kw = chars.read_while(char::is_alphabetic)?;
+    match kw.as_str() {
+        "module" => read_module_decl(chars),
+        "export" => read_export_decl(chars),
+        "import" => read_import_decl(chars),
+        _ => Ok((None, false)),
+    }
+}
+
+fn read_module_decl<R>(chars: &mut CharReader<R>) -> Result<(Option<IncFile>, bool)> where R: BufRead {
+    chars.skip_while(char::is_whitespace)?;
+    if chars.cur == ';' {
+        next_chr!(chars, (None, true));
+        return Ok((None, true));
+    }
+
+    let res = read_export_module_decl(chars)?;
+    if let (Some(IncFile::ExpModule(m)), b) = res {
+        Ok((Some(IncFile::ImpModule(m)), b))
+    } else {
+        Ok(res)
+    }
+}
+
+fn read_export_decl<R>(chars: &mut CharReader<R>) -> Result<(Option<IncFile>, bool)> where R: BufRead {
+    chars.skip_while(char::is_whitespace)?;
+    let kw = chars.read_while(char::is_alphabetic)?;
+    match kw.as_str() {
+        "module" => read_export_module_decl(chars),
+        "import" => {
+            let (m, b) = read_import_decl(chars)?;
+            let m = match m {
+                Some(IncFile::ImpModule(m)) => Some(IncFile::ExpImpModule(m)),
+                Some(IncFile::UserModule(m)) => Some(IncFile::ExpUserModule(m)),
+                Some(IncFile::SystemModule(m)) => Some(IncFile::ExpSystemModule(m)),
+                m => m,
+            };
+            Ok((m, b))
+        }
+        _ => Ok((None, false))
+    }
+}
+
+fn read_export_module_decl<R>(chars: &mut CharReader<R>) -> Result<(Option<IncFile>, bool)> where R: BufRead {
+    chars.skip_while(char::is_whitespace)?;
+    let mut m = chars.read_while(|c| c.is_alphanumeric() || c == '.')?;
+
+    chars.skip_while(char::is_whitespace)?;
+    if chars.cur == ';' {
+        let res = (Some(IncFile::ExpModule(m)), true);
+        next_chr!(chars, res);
+        return Ok(res);
+    }
+    if chars.cur != ':' {
+        let res = (Some(IncFile::ExpModule(m)), true);
+        return Ok(res);
+    }
+    m.push(':');
+
+    chars.skip_while(char::is_whitespace)?;
+    chars.read_to_while(|c| c.is_alphanumeric() || c == '.', &mut m)?;
+
+    let res = (Some(IncFile::ExpModule(m)), true);
+    if chars.cur == ';' {
+        next_chr!(chars, res);
+    }
+    Ok(res)
+}
+
+fn read_import_decl<R>(chars: &mut CharReader<R>) -> Result<(Option<IncFile>, bool)> where R: BufRead {
+    chars.skip_while(char::is_whitespace)?;
+    match chars.cur {
+        '<' => {
+            let f = chars.read_while(|c| c != '>')?;
+            return Ok((Some(IncFile::SystemModule(f.into())), true));
+        }
+        '"' => {
+            let f = chars.read_while(|c| c != '"')?;
+            return Ok((Some(IncFile::UserModule(f.into())), true));
+        }
+        _ => {
+            let res = read_export_module_decl(chars)?;
+            if let (Some(IncFile::ExpModule(m)), b) = res {
+                Ok((Some(IncFile::ImpModule(m)), b))
+            } else {
+                Ok(res)
+            }
+        }
+    }
 }

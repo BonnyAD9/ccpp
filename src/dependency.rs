@@ -9,8 +9,8 @@ use std::{
 
 use crate::{
     err::{Error, Result},
-    file_type::FileType,
-    include_deps::get_included_files,
+    file_type::{FileState, FileType, Language},
+    include_deps::{get_included_files, IncFile},
 };
 
 #[derive(Debug, Clone)]
@@ -20,7 +20,20 @@ pub struct Dependency {
     /// Direct dependencies to build [`Self::file`]
     pub direct: Vec<DepFile>,
     /// Indirect dependencies of [`Self::file`]
-    pub indirect: HashSet<DepFile>,
+    pub transitive: HashSet<DepFile>,
+    pub non_transitive: HashSet<DepFile>,
+    pub modules: Modules,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Modules {
+    provides: Option<DepModule>,
+    imports: Vec<DepModule>,
+    exports: Vec<DepModule>,
+    user: Vec<DepFile>,
+    system: Vec<DepFile>,
+    user_exports: Vec<DepFile>,
+    system_exports: Vec<DepFile>,
 }
 
 #[derive(Clone, Eq, Debug)]
@@ -28,6 +41,8 @@ pub struct DepFile {
     pub path: Rc<Path>,
     pub typ: Option<FileType>,
 }
+
+pub type DepModule = Rc<str>;
 
 impl PartialEq for DepFile {
     fn eq(&self, other: &Self) -> bool {
@@ -65,13 +80,28 @@ impl From<PathBuf> for DepFile {
     }
 }
 
-pub struct DepCache {
-    cache: HashMap<DepFile, Dependency>,
+impl DepFile {
+    pub fn header(path: PathBuf) -> Self {
+        let mut res: Self = path.into();
+        res.typ = if let Some(typ) = res.typ {
+            Some(FileType { lang: typ.lang, state: FileState::Header })
+        } else {
+            Some(FileType { lang: Language::Cpp, state: FileState::Header })
+        };
+        res
+    }
 }
 
-enum DepDirection {
-    Same(DepFile),
-    LastDeeper(DepFile),
+pub struct DepCache {
+    file_cache: HashMap<DepFile, Dependency>,
+    module_map: HashMap<DepModule, DepFile>,
+    module_cache: HashMap<DepFile, Dependency>,
+}
+
+struct DepInfo {
+    file: DepFile,
+    pop: bool,
+    transitive: bool,
 }
 
 //===========================================================================//
@@ -82,12 +112,24 @@ impl Dependency {
     pub fn new(
         file: DepFile,
         direct: Vec<DepFile>,
-        indirect: HashSet<DepFile>,
+        transitive: HashSet<DepFile>,
     ) -> Self {
         Self {
             file,
             direct,
-            indirect,
+            transitive,
+            non_transitive: HashSet::new(),
+            modules: Modules::default(),
+        }
+    }
+
+    pub fn empty(file: DepFile) -> Self {
+        Self {
+            file,
+            direct: vec![],
+            transitive: HashSet::new(),
+            non_transitive: HashSet::new(),
+            modules: Modules::default(),
         }
     }
 
@@ -107,7 +149,7 @@ impl Dependency {
         };
 
         // need to update if dependency is newer than file
-        for dep in self.direct.iter().chain(self.indirect.iter()) {
+        for dep in self.direct.iter().chain(self.transitive.iter()) {
             let dep_mod = dep.metadata()?.modified()?;
             if dep_mod > last_mod {
                 return Ok(false);
@@ -121,91 +163,121 @@ impl Dependency {
 impl DepCache {
     pub fn new() -> Self {
         Self {
-            cache: HashMap::new(),
+            file_cache: HashMap::new(),
+            module_map: HashMap::new(),
+            module_cache: HashMap::new(),
         }
     }
 
     /// Finds the indirect dependencies for the given dependency file.
     pub fn fill_dependency(&mut self, dep: &mut Dependency) -> Result<()> {
-        if self.cache.contains_key(&dep.file) {
+        if self.file_cache.contains_key(&dep.file) {
             return Err(Error::DuplicateDependency);
         }
 
         for file in &dep.direct {
-            let deps = self.get_dependencies(file.clone())?;
-            dep.indirect.extend(deps.indirect.iter().cloned());
+            if matches!(file.typ, Some(FileType { state: FileState::Header | FileState::Source | FileState::SourceModule, .. })) {
+                let deps = self.get_dependencies(file.clone())?;
+                dep.transitive.extend(deps.transitive.iter().cloned());
+            }
         }
+
+        self.resolve_modules();
 
         Ok(())
     }
 
     pub fn get_dependencies(&mut self, file: DepFile) -> Result<&Dependency> {
-        let mut indirect: HashSet<DepFile> = HashSet::new();
+        self.resolve_dependency(file.clone())?;
+        self.resolve_modules();
+        Ok(self.file_cache.get(&file).unwrap())
+    }
 
-        if let Some(parent) = file.parent() {
-            indirect.extend(
-                get_included_files(file.clone())?
-                    .into_iter()
-                    .filter(|d| d.relative)
-                    .map(|d| parent.join(d.path).canonicalize())
-                    .filter_map(|d| d.ok())
-                    .map(|d| d.into()),
-            );
+    fn resolve_dependency(&mut self, mut file: DepFile) -> Result<&Dependency> {
+        // This cannot be converted to if let, because borrow checker is not
+        // yet smart enough
+        if self.file_cache.contains_key(&file) {
+            return Ok(self.file_cache.get(&file).unwrap());
         }
 
-        let mut to_exam: Vec<_> = indirect
+        let mut dep = Dependency::empty(file.clone());
+
+        parse_dependencies(&mut dep)?;
+        if dep.modules.provides.is_some() {
+            file.typ = Some(FileType {
+                lang: Language::Cpp,
+                state: FileState::SourceModule
+            });
+            dep.file.typ = file.typ;
+        }
+
+        let mut to_exam: Vec<_> = dep.transitive
             .iter()
-            .map(|f| DepDirection::Same(f.clone()))
+            .map(|f| DepInfo {
+                file: f.clone(),
+                pop: false,
+                transitive: true,
+            })
+            .chain(dep.non_transitive.iter().map(|f| DepInfo {
+                file: f.clone(),
+                pop: false,
+                transitive: false,
+            }))
             .collect();
-        let mut dep_stack =
-            vec![Dependency::new(file.clone(), vec![], indirect)];
-        while let Some(file) = to_exam.pop() {
-            let mut pop = false;
-            let file = match file {
-                DepDirection::Same(path) => path,
-                DepDirection::LastDeeper(path) => {
-                    pop = true;
-                    path
-                }
-            };
+        let mut dep_stack = vec![dep];
 
-            if let Some(dep) = self.cache.get(&file) {
+        while let Some(DepInfo {file, pop, transitive}) = to_exam.pop() {
+            if let Some(dep) = self.file_cache.get(&file) {
                 if let Some(top) = dep_stack.last_mut() {
-                    top.indirect.extend(dep.indirect.iter().cloned());
+                    top.transitive.extend(dep.transitive.iter().cloned());
                 }
-            } else if let Some(parent) = file.parent() {
-                let indirect = get_included_files(file.clone())?
-                    .into_iter()
-                    .filter(|d| d.relative)
-                    .map(|d| parent.join(d.path).canonicalize())
-                    .filter(|d| d.is_ok())
-                    .map(|d| d.unwrap().into())
-                    .filter(|d| {
-                        *d != file && !dep_stack.iter().any(|d2| d2.file == *d)
-                    })
-                    .collect();
+            }
 
-                let dep = Dependency::new(file, vec![], indirect);
+            let mut dep = Dependency::empty(file);
 
-                let mut indirect = dep.indirect.iter();
+            parse_dependencies(&mut dep)?;
 
-                if let Some(d) = indirect.next() {
-                    to_exam.push(DepDirection::LastDeeper(d.clone()));
-                    to_exam.extend(
-                        indirect.map(|d| DepDirection::Same(d.clone())),
-                    );
-                    dep_stack.push(dep);
-                } else {
-                    self.cache.insert(dep.file.clone(), dep);
-                }
+            let mut transitive_i = dep.transitive.iter();
+            let mut non_transitive_i = dep.non_transitive.iter();
+
+            if let Some(d) = transitive_i.next() {
+                to_exam.push(DepInfo { file: d.clone(), pop: true, transitive: true });
+                to_exam.extend(transitive_i.map(|d| DepInfo {
+                    file: d.clone(),
+                    pop: false,
+                    transitive: true,
+                }));
+                to_exam.extend(non_transitive_i.map(|d| DepInfo {
+                    file: d.clone(),
+                    pop: false,
+                    transitive: false,
+                }));
+                dep_stack.push(dep);
+            } else if let Some(d) = non_transitive_i.next() {
+                to_exam.push(DepInfo { file: d.clone(), pop: true, transitive: false });
+                to_exam.extend(non_transitive_i.map(|d| DepInfo {
+                    file: d.clone(),
+                    pop: false,
+                    transitive: false,
+                }));
+                dep_stack.push(dep);
+            } else {
+                self.file_cache.insert(dep.file.clone(), dep);
             }
 
             if pop {
                 if let Some(dep) = dep_stack.pop() {
                     if let Some(top_dep) = dep_stack.last_mut() {
-                        top_dep.indirect.extend(dep.indirect.iter().cloned());
+                        if transitive {
+                            top_dep.transitive.extend(dep.transitive.iter().cloned());
+                        } else {
+                            top_dep.non_transitive.extend(dep.transitive.iter().cloned());
+                        }
                     }
-                    self.cache.insert(dep.file.clone(), dep);
+                    if let Some(m) = &dep.modules.provides {
+                        self.module_map.insert(m.clone(), dep.file.clone());
+                    }
+                    self.file_cache.insert(dep.file.clone(), dep);
                 }
             }
         }
@@ -213,12 +285,61 @@ impl DepCache {
         if dep_stack.len() > 1 {
             Err(Error::DoesNotHappen("Dependency stack has too many items."))
         } else if let Some(res) = dep_stack.into_iter().next() {
-            self.cache.insert(file.clone(), res);
-            self.cache.get(&file).ok_or(Error::DoesNotHappen(
+            if let Some(m) = &res.modules.provides {
+                self.module_map.insert(m.clone(), res.file.clone());
+            }
+            self.file_cache.insert(file.clone(), res);
+            self.file_cache.get(&file).ok_or(Error::DoesNotHappen(
                 "Item just iserted into hashmap is not in the hashmap?",
             ))
         } else {
             Err(Error::DoesNotHappen("Dependency stack has no items"))
         }
     }
+
+    fn resolve_modules(&mut self) {
+        // TODO
+    }
+}
+
+fn parse_dependencies(dep: &mut Dependency) -> Result<()> {
+    if let Some(parent) = dep.file.parent() {
+        for inc in get_included_files(&dep.file)? {
+            match inc {
+                IncFile::User(m) => _ = dep.transitive.insert(DepFile::header(parent.join(m))),
+                IncFile::System(_) => {},
+                IncFile::ExpModule(m) => dep.modules.provides = Some(m.into()),
+                IncFile::ImpModule(mut m) => {
+                    if m.starts_with(':') {
+                        if let Some(base) = &dep.modules.provides {
+                            m.insert_str(0, base);
+                        }
+                    }
+                    dep.modules.imports.push(m.into());
+                },
+                IncFile::ExpImpModule(mut m) => {
+                    if m.starts_with(':') {
+                        if let Some(base) = &dep.modules.provides {
+                            m.insert_str(0, base);
+                        }
+                    }
+                    dep.modules.exports.push(m.into())
+                },
+                IncFile::UserModule(m) => {
+                    let f = DepFile::header(parent.join(m));
+                    dep.modules.user.push(f.clone());
+                    dep.non_transitive.insert(f);
+                },
+                IncFile::SystemModule(m) => dep.modules.system.push(DepFile::header(m)),
+                IncFile::ExpUserModule(m) => {
+                    let f = DepFile::header(parent.join(m));
+                    dep.modules.user_exports.push(f.clone());
+                    dep.transitive.insert(f);
+                },
+                IncFile::ExpSystemModule(m) => dep.modules.system_exports.push(DepFile::header(m)),
+            }
+        }
+    }
+
+    Ok(())
 }

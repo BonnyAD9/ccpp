@@ -48,13 +48,19 @@ where
         }
     }
 
-    fn read_while<F>(&mut self, f: F) -> Result<String> where F: Fn(char) -> bool {
+    fn read_while<F>(&mut self, f: F) -> Result<String>
+    where
+        F: Fn(char) -> bool,
+    {
         let mut res = String::new();
         self.read_to_while(f, &mut res)?;
         Ok(res)
     }
 
-    fn read_to_while<F>(&mut self, f: F, res: &mut String) -> Result<()> where F: Fn(char) -> bool {
+    fn read_to_while<F>(&mut self, f: F, res: &mut String) -> Result<()>
+    where
+        F: Fn(char) -> bool,
+    {
         loop {
             if !f(self.cur) {
                 return Ok(());
@@ -64,7 +70,10 @@ where
         }
     }
 
-    fn skip_while<F>(&mut self, f: F) -> Result<()> where F: Fn(char) -> bool {
+    fn skip_while<F>(&mut self, f: F) -> Result<()>
+    where
+        F: Fn(char) -> bool,
+    {
         loop {
             if !f(self.cur) {
                 return Ok(());
@@ -293,7 +302,10 @@ where
     chars.esc_skip_while(|c| c != '\n')
 }
 
-fn read_module<R>(chars: &mut CharReader<R>) -> Result<(Option<IncFile>, bool)> where R: BufRead {
+fn read_module<R>(chars: &mut CharReader<R>) -> Result<(Option<IncFile>, bool)>
+where
+    R: BufRead,
+{
     let kw = chars.read_while(char::is_alphabetic)?;
     match kw.as_str() {
         "module" => read_module_decl(chars),
@@ -303,7 +315,12 @@ fn read_module<R>(chars: &mut CharReader<R>) -> Result<(Option<IncFile>, bool)> 
     }
 }
 
-fn read_module_decl<R>(chars: &mut CharReader<R>) -> Result<(Option<IncFile>, bool)> where R: BufRead {
+fn read_module_decl<R>(
+    chars: &mut CharReader<R>,
+) -> Result<(Option<IncFile>, bool)>
+where
+    R: BufRead,
+{
     chars.skip_while(char::is_whitespace)?;
     if chars.cur == ';' {
         next_chr!(chars, (None, true));
@@ -318,7 +335,12 @@ fn read_module_decl<R>(chars: &mut CharReader<R>) -> Result<(Option<IncFile>, bo
     }
 }
 
-fn read_export_decl<R>(chars: &mut CharReader<R>) -> Result<(Option<IncFile>, bool)> where R: BufRead {
+fn read_export_decl<R>(
+    chars: &mut CharReader<R>,
+) -> Result<(Option<IncFile>, bool)>
+where
+    R: BufRead,
+{
     chars.skip_while(char::is_whitespace)?;
     let kw = chars.read_while(char::is_alphabetic)?;
     match kw.as_str() {
@@ -327,17 +349,26 @@ fn read_export_decl<R>(chars: &mut CharReader<R>) -> Result<(Option<IncFile>, bo
             let (m, b) = read_import_decl(chars)?;
             let m = match m {
                 Some(IncFile::ImpModule(m)) => Some(IncFile::ExpImpModule(m)),
-                Some(IncFile::UserModule(m)) => Some(IncFile::ExpUserModule(m)),
-                Some(IncFile::SystemModule(m)) => Some(IncFile::ExpSystemModule(m)),
+                Some(IncFile::UserModule(m)) => {
+                    Some(IncFile::ExpUserModule(m))
+                }
+                Some(IncFile::SystemModule(m)) => {
+                    Some(IncFile::ExpSystemModule(m))
+                }
                 m => m,
             };
             Ok((m, b))
         }
-        _ => Ok((None, false))
+        _ => Ok((None, false)),
     }
 }
 
-fn read_export_module_decl<R>(chars: &mut CharReader<R>) -> Result<(Option<IncFile>, bool)> where R: BufRead {
+fn read_export_module_decl<R>(
+    chars: &mut CharReader<R>,
+) -> Result<(Option<IncFile>, bool)>
+where
+    R: BufRead,
+{
     chars.skip_while(char::is_whitespace)?;
     let mut m = chars.read_while(|c| c.is_alphanumeric() || c == '.')?;
 
@@ -363,7 +394,12 @@ fn read_export_module_decl<R>(chars: &mut CharReader<R>) -> Result<(Option<IncFi
     Ok(res)
 }
 
-fn read_import_decl<R>(chars: &mut CharReader<R>) -> Result<(Option<IncFile>, bool)> where R: BufRead {
+fn read_import_decl<R>(
+    chars: &mut CharReader<R>,
+) -> Result<(Option<IncFile>, bool)>
+where
+    R: BufRead,
+{
     chars.skip_while(char::is_whitespace)?;
     match chars.cur {
         '<' => {

@@ -84,9 +84,15 @@ impl DepFile {
     pub fn header(path: PathBuf) -> Self {
         let mut res: Self = path.into();
         res.typ = if let Some(typ) = res.typ {
-            Some(FileType { lang: typ.lang, state: FileState::Header })
+            Some(FileType {
+                lang: typ.lang,
+                state: FileState::Header,
+            })
         } else {
-            Some(FileType { lang: Language::Cpp, state: FileState::Header })
+            Some(FileType {
+                lang: Language::Cpp,
+                state: FileState::Header,
+            })
         };
         res
     }
@@ -176,7 +182,15 @@ impl DepCache {
         }
 
         for file in &dep.direct {
-            if matches!(file.typ, Some(FileType { state: FileState::Header | FileState::Source | FileState::SourceModule, .. })) {
+            if matches!(
+                file.typ,
+                Some(FileType {
+                    state: FileState::Header
+                        | FileState::Source
+                        | FileState::SourceModule,
+                    ..
+                })
+            ) {
                 let deps = self.get_dependencies(file.clone())?;
                 dep.transitive.extend(deps.transitive.iter().cloned());
             }
@@ -193,7 +207,10 @@ impl DepCache {
         Ok(self.file_cache.get(&file).unwrap())
     }
 
-    fn resolve_dependency(&mut self, mut file: DepFile) -> Result<&Dependency> {
+    fn resolve_dependency(
+        &mut self,
+        mut file: DepFile,
+    ) -> Result<&Dependency> {
         // This cannot be converted to if let, because borrow checker is not
         // yet smart enough
         if self.file_cache.contains_key(&file) {
@@ -206,12 +223,13 @@ impl DepCache {
         if dep.modules.provides.is_some() {
             file.typ = Some(FileType {
                 lang: Language::Cpp,
-                state: FileState::SourceModule
+                state: FileState::SourceModule,
             });
             dep.file.typ = file.typ;
         }
 
-        let mut to_exam: Vec<_> = dep.transitive
+        let mut to_exam: Vec<_> = dep
+            .transitive
             .iter()
             .map(|f| DepInfo {
                 file: f.clone(),
@@ -226,10 +244,20 @@ impl DepCache {
             .collect();
         let mut dep_stack = vec![dep];
 
-        while let Some(DepInfo {file, pop, transitive}) = to_exam.pop() {
+        while let Some(DepInfo {
+            file,
+            pop,
+            transitive,
+        }) = to_exam.pop()
+        {
             if let Some(dep) = self.file_cache.get(&file) {
                 if let Some(top) = dep_stack.last_mut() {
-                    top.transitive.extend(dep.transitive.iter().cloned());
+                    if transitive {
+                        top.transitive.extend(dep.transitive.iter().cloned());
+                    } else {
+                        top.non_transitive
+                            .extend(dep.transitive.iter().cloned());
+                    }
                 }
             }
 
@@ -241,7 +269,11 @@ impl DepCache {
             let mut non_transitive_i = dep.non_transitive.iter();
 
             if let Some(d) = transitive_i.next() {
-                to_exam.push(DepInfo { file: d.clone(), pop: true, transitive: true });
+                to_exam.push(DepInfo {
+                    file: d.clone(),
+                    pop: true,
+                    transitive: true,
+                });
                 to_exam.extend(transitive_i.map(|d| DepInfo {
                     file: d.clone(),
                     pop: false,
@@ -254,7 +286,11 @@ impl DepCache {
                 }));
                 dep_stack.push(dep);
             } else if let Some(d) = non_transitive_i.next() {
-                to_exam.push(DepInfo { file: d.clone(), pop: true, transitive: false });
+                to_exam.push(DepInfo {
+                    file: d.clone(),
+                    pop: true,
+                    transitive: false,
+                });
                 to_exam.extend(non_transitive_i.map(|d| DepInfo {
                     file: d.clone(),
                     pop: false,
@@ -269,9 +305,13 @@ impl DepCache {
                 if let Some(dep) = dep_stack.pop() {
                     if let Some(top_dep) = dep_stack.last_mut() {
                         if transitive {
-                            top_dep.transitive.extend(dep.transitive.iter().cloned());
+                            top_dep
+                                .transitive
+                                .extend(dep.transitive.iter().cloned());
                         } else {
-                            top_dep.non_transitive.extend(dep.transitive.iter().cloned());
+                            top_dep
+                                .non_transitive
+                                .extend(dep.transitive.iter().cloned());
                         }
                     }
                     if let Some(m) = &dep.modules.provides {
@@ -306,8 +346,10 @@ fn parse_dependencies(dep: &mut Dependency) -> Result<()> {
     if let Some(parent) = dep.file.parent() {
         for inc in get_included_files(&dep.file)? {
             match inc {
-                IncFile::User(m) => _ = dep.transitive.insert(DepFile::header(parent.join(m))),
-                IncFile::System(_) => {},
+                IncFile::User(m) => {
+                    _ = dep.transitive.insert(DepFile::header(parent.join(m)))
+                }
+                IncFile::System(_) => {}
                 IncFile::ExpModule(m) => dep.modules.provides = Some(m.into()),
                 IncFile::ImpModule(mut m) => {
                     if m.starts_with(':') {
@@ -316,7 +358,7 @@ fn parse_dependencies(dep: &mut Dependency) -> Result<()> {
                         }
                     }
                     dep.modules.imports.push(m.into());
-                },
+                }
                 IncFile::ExpImpModule(mut m) => {
                     if m.starts_with(':') {
                         if let Some(base) = &dep.modules.provides {
@@ -324,19 +366,23 @@ fn parse_dependencies(dep: &mut Dependency) -> Result<()> {
                         }
                     }
                     dep.modules.exports.push(m.into())
-                },
+                }
                 IncFile::UserModule(m) => {
                     let f = DepFile::header(parent.join(m));
                     dep.modules.user.push(f.clone());
                     dep.non_transitive.insert(f);
-                },
-                IncFile::SystemModule(m) => dep.modules.system.push(DepFile::header(m)),
+                }
+                IncFile::SystemModule(m) => {
+                    dep.modules.system.push(DepFile::header(m))
+                }
                 IncFile::ExpUserModule(m) => {
                     let f = DepFile::header(parent.join(m));
                     dep.modules.user_exports.push(f.clone());
                     dep.transitive.insert(f);
-                },
-                IncFile::ExpSystemModule(m) => dep.modules.system_exports.push(DepFile::header(m)),
+                }
+                IncFile::ExpSystemModule(m) => {
+                    dep.modules.system_exports.push(DepFile::header(m))
+                }
             }
         }
     }
